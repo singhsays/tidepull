@@ -1,0 +1,47 @@
+# GoReleaser configuration — releases are published on v* tag pushes
+# by .github/workflows/release.yml.
+version: 2
+
+project_name: tidepull
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - binary: tidepull
+    main: ./cmd/tidepull
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+        -X github.com/singhsays/tidepull/internal/version.Version={{.Version}}
+        -X github.com/singhsays/tidepull/internal/version.Commit={{.FullCommit}}
+        -X github.com/singhsays/tidepull/internal/version.Date={{.CommitDate}}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: git
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]-]+\))?[:(].*$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]-]+\))?[:(].*$'
+      order: 1
+    - title: Dependency updates
+      regexp: '^.*?chore(\(deps\))?[:(].*$'
+      order: 2
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^Merge'
