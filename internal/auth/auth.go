@@ -17,6 +17,8 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/singhsays/tidepull/internal/config"
 	"github.com/singhsays/tidepull/internal/provider"
 )
@@ -190,7 +192,7 @@ func (s *savingTokenSource) Token() (*oauth2.Token, error) {
 	}
 	if tok != s.last {
 		if err := s.store.TokenSave(s.name, tok); err != nil {
-			fmt.Fprintf(os.Stderr, "tidepull: saving refreshed token: %v\n", err)
+			log.Warn().Err(err).Msg("saving refreshed token")
 		} else {
 			s.last = tok
 		}

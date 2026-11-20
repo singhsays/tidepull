@@ -36,7 +36,7 @@ func (e *Engine) applyChange(ctx context.Context, acct config.Account, res *reso
 // separately so rename detection sees the pre-change state.
 func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolver, files map[string]state.File, f state.File, old state.File) error {
 	if !res.inScope(ctx, files, f) {
-		e.Log.Debug("file out of scope", "account", acct.Name, "file", f.Name, "id", f.ID)
+		e.Log.Debug().Str("file", f.Name).Str("id", f.ID).Msg("file out of scope")
 		return nil
 	}
 	if f.MimeType == google.FolderMime {
@@ -50,7 +50,7 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 		return nil
 	}
 	if isNativeDocRow(f) {
-		e.Log.Debug("skipping native doc", "account", acct.Name, "file", f.Name, "id", f.ID)
+		e.Log.Debug().Str("file", f.Name).Str("id", f.ID).Msg("skipping native doc")
 		return nil
 	}
 
@@ -66,8 +66,7 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 			if err := os.Rename(oldPath, newPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
-			e.Log.Info("renamed", "account", acct.Name,
-				"from", relLocalPath(acct, oldPath), "to", relLocalPath(acct, newPath))
+			e.Log.Info().Str("from", relLocalPath(acct, oldPath)).Str("to", relLocalPath(acct, newPath)).Msg("renamed")
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
@@ -79,7 +78,7 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 		if err := e.download(ctx, res.client, f, newPath); err != nil {
 			return err
 		}
-		e.Log.Info("stored", "account", acct.Name, "path", relLocalPath(acct, newPath), "size", f.Size)
+		e.Log.Info().Str("path", relLocalPath(acct, newPath)).Int64("size", f.Size).Msg("stored")
 	}
 	if err := e.DB.FileUpsert(acct.Name, f); err != nil {
 		return err
@@ -129,7 +128,7 @@ func (e *Engine) removeLocal(acct config.Account, files map[string]state.File, f
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	e.Log.Info("removed", "account", acct.Name, "path", relLocalPath(acct, path))
+	e.Log.Info().Str("path", relLocalPath(acct, path)).Msg("removed")
 	return nil
 }
 
@@ -154,8 +153,7 @@ func (e *Engine) renameFolder(acct config.Account, files map[string]state.File, 
 			return err
 		}
 	}
-	e.Log.Info("renamed", "account", acct.Name,
-		"from", relLocalPath(acct, oldPath), "to", relLocalPath(acct, newPath))
+	e.Log.Info().Str("from", relLocalPath(acct, oldPath)).Str("to", relLocalPath(acct, newPath)).Msg("renamed")
 	return nil
 }
 
@@ -167,9 +165,7 @@ func (e *Engine) warnDuplicate(acct config.Account, files map[string]state.File,
 			continue
 		}
 		if e.localPath(acct, resolvedPath(acct, files, row)) == localPath {
-			e.Log.Warn("duplicate filename on provider, last write wins",
-				"account", acct.Name, "path", relLocalPath(acct, localPath),
-				"kept", f.ID, "overwritten", id)
+			e.Log.Warn().Str("path", relLocalPath(acct, localPath)).Str("kept", f.ID).Str("overwritten", id).Msg("duplicate filename on provider, last write wins")
 		}
 	}
 }

@@ -2,11 +2,12 @@ package engine
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rs/zerolog"
 
 	"github.com/singhsays/tidepull/internal/config"
 	"github.com/singhsays/tidepull/internal/provider/google"
@@ -47,7 +48,7 @@ func newHarness(t *testing.T) *harness {
 func (h *harness) run(t *testing.T) *bytesLogger {
 	t.Helper()
 	var buf bytesLogger
-	engine := &Engine{DB: h.db, Log: slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+	engine := &Engine{DB: h.db, Log: zerolog.New(&buf).Level(zerolog.DebugLevel)}
 	if err := engine.Pull(context.Background(), h.acct, h.d.Client(t)); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func TestFullSyncAndDelta(t *testing.T) {
 	h.d.AddFile("b", "b.txt", "docs", "text/plain", []byte("bravo"))
 
 	logs := h.run(t)
-	if logs.has("level=WARN") {
+	if logs.has(`"level":"warn"`) {
 		t.Errorf("unexpected warnings: %s", logs.b.String())
 	}
 	if got, err := os.ReadFile(filepath.Join(h.local, "a.txt")); err != nil || string(got) != "hello" {

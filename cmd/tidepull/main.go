@@ -10,6 +10,8 @@ import (
 	"syscall"
 
 	"github.com/alecthomas/kong"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/adrg/xdg"
 
@@ -19,7 +21,8 @@ import (
 
 // CLI is the tidepull command line.
 type CLI struct {
-	Run     RunCmd     `cmd:"" help:"Run one pull cycle per account and exit."`
+	LogLevel string     `short:"l" enum:"debug,info,warn,error" default:"info" help:"Minimum log level."`
+	Run      RunCmd     `cmd:"" help:"Run one pull cycle per account and exit."`
 	Daemon  DaemonCmd  `cmd:"" help:"Poll each account on its interval until interrupted."`
 	Auth    AuthCmd    `cmd:"" help:"Manage account OAuth tokens."`
 	Version VersionCmd `cmd:"" help:"Print version."`
@@ -119,14 +122,22 @@ func loadFiltered(path string, names []string) (*config.Config, error) {
 }
 
 func main() {
+	log.Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
 	cli := CLI{}
 	ctx := kong.Parse(&cli,
 		kong.Name("tidepull"),
 		kong.Description("Keep local directories in sync with cloud storage."),
 		kong.UsageOnError(),
 	)
+	lvl, err := zerolog.ParseLevel(cli.LogLevel)
+	if err != nil {
+		log.Error().Err(err).Msg("log setup")
+		os.Exit(1)
+	}
+	zerolog.SetGlobalLevel(lvl)
 	if err := ctx.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "tidepull:", err)
+		log.Error().Err(err).Msg("tidepull")
 		os.Exit(1)
 	}
 }
+

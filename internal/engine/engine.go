@@ -4,8 +4,9 @@ package engine
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"sort"
+
+	"github.com/rs/zerolog"
 
 	"github.com/singhsays/tidepull/internal/config"
 	"github.com/singhsays/tidepull/internal/provider/google"
@@ -15,7 +16,7 @@ import (
 // Engine pulls one account's tree into its local directory.
 type Engine struct {
 	DB  *state.DB
-	Log *slog.Logger
+	Log zerolog.Logger
 }
 
 // Pull brings the local directory up to date with the provider: delta
@@ -40,7 +41,7 @@ func (e *Engine) Pull(ctx context.Context, acct config.Account, client Client) e
 		changes, next, end, err := client.Changes(ctx, pageToken)
 		if err != nil {
 			if errors.Is(err, google.ErrStaleChangeToken) {
-				e.Log.Warn("stale change token, resyncing", "account", acct.Name)
+				e.Log.Warn().Msg("stale change token, resyncing")
 				return e.fullSync(ctx, acct, res, files)
 			}
 			return err
@@ -102,6 +103,6 @@ func (e *Engine) fullSync(ctx context.Context, acct config.Account, res *resolve
 	if err := e.DB.PageTokenSave(acct.Name, tok); err != nil {
 		return err
 	}
-	e.Log.Info("full resync complete", "account", acct.Name, "files", len(listed))
+	e.Log.Info().Int("files", len(listed)).Msg("full resync complete")
 	return nil
 }

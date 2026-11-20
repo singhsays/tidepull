@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/singhsays/tidepull/internal/auth"
 	"github.com/singhsays/tidepull/internal/config"
@@ -56,7 +57,7 @@ func runDaemon(ctx context.Context, cfg *config.Config) error {
 		go func(acct config.Account) {
 			defer wg.Done()
 			if err := pullAccount(ctx, db, acct); err != nil {
-				slog.Error("pull failed", "account", acct.Name, "err", err)
+				log.Error().Str("account", acct.Name).Err(err).Msg("pull failed")
 			}
 			ticker := time.NewTicker(acct.Interval)
 			defer ticker.Stop()
@@ -66,7 +67,7 @@ func runDaemon(ctx context.Context, cfg *config.Config) error {
 					return
 				case <-ticker.C:
 					if err := pullAccount(ctx, db, acct); err != nil {
-						slog.Error("pull failed", "account", acct.Name, "err", err)
+						log.Error().Str("account", acct.Name).Err(err).Msg("pull failed")
 					}
 				}
 			}
@@ -90,8 +91,9 @@ func pullAccount(ctx context.Context, db *state.DB, acct config.Account) error {
 	if err != nil {
 		return err
 	}
-	engine := &engine.Engine{DB: db, Log: slog.Default()}
-	return engine.Pull(ctx, acct, client)
+	acctLog := log.Logger.With().Str("account", acct.Name).Logger()
+	acctEngine := &engine.Engine{DB: db, Log: acctLog}
+	return acctEngine.Pull(ctx, acct, client)
 }
 
 // authLogin runs the OAuth loopback flow and stores the refresh token.
