@@ -1,20 +1,19 @@
 package state
 
 import (
-	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"golang.org/x/oauth2"
+
+	"github.com/stretchr/testify/require"
 )
 
 func open(t *testing.T) *DB {
 	t.Helper()
 	db, err := Open(filepath.Join(t.TempDir(), "state.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
@@ -27,63 +26,42 @@ func TestTokenRoundTrip(t *testing.T) {
 		RefreshToken: "rt",
 		Expiry:       time.Now().Add(time.Hour).Truncate(time.Second),
 	}
-	if err := db.TokenSave("photos", want); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, db.TokenSave("photos", want))
 	got, err := db.TokenLoad("photos")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.AccessToken != "at" || got.RefreshToken != "rt" || got.TokenType != "Bearer" || got.Expiry.IsZero() {
-		t.Errorf("round-trip mismatch: %+v", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "at", got.AccessToken)
+	require.Equal(t, "rt", got.RefreshToken)
+	require.Equal(t, "Bearer", got.TokenType)
+	require.False(t, got.Expiry.IsZero())
 }
 
 func TestTokenOverwrite(t *testing.T) {
 	db := open(t)
-	if err := db.TokenSave("photos", &oauth2.Token{AccessToken: "old", RefreshToken: "r1"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.TokenSave("photos", &oauth2.Token{AccessToken: "new", RefreshToken: "r2"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, db.TokenSave("photos", &oauth2.Token{AccessToken: "old", RefreshToken: "r1"}))
+	require.NoError(t, db.TokenSave("photos", &oauth2.Token{AccessToken: "new", RefreshToken: "r2"}))
 	got, err := db.TokenLoad("photos")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.AccessToken != "new" || got.RefreshToken != "r2" {
-		t.Errorf("overwrite failed: %+v", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "new", got.AccessToken)
+	require.Equal(t, "r2", got.RefreshToken)
 }
 
 func TestTokenLoadMissing(t *testing.T) {
 	db := open(t)
-	if _, err := db.TokenLoad("nosuch"); !errors.Is(err, ErrNoToken) {
-		t.Errorf("err = %v, want ErrNoToken", err)
-	}
+	_, err := db.TokenLoad("nosuch")
+	require.ErrorIs(t, err, ErrNoToken)
 }
 
 func TestOpenTwiceMigratesIdempotently(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	first, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := first.TokenSave("photos", &oauth2.Token{AccessToken: "at"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, first.TokenSave("photos", &oauth2.Token{AccessToken: "at"}))
 	_ = first.Close()
 
 	second, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = second.Close() }()
 	got, err := second.TokenLoad("photos")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.AccessToken != "at" {
-		t.Errorf("token lost across open: %+v", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "at", got.AccessToken)
 }

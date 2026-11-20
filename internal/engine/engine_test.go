@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
 
 	"github.com/singhsays/tidepull/internal/config"
 	"github.com/singhsays/tidepull/internal/provider/google"
@@ -27,9 +28,7 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	d := drivetest.New(t)
 	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	local := t.TempDir()
 	return &harness{
@@ -49,9 +48,7 @@ func (h *harness) run(t *testing.T) *bytesLogger {
 	t.Helper()
 	var buf bytesLogger
 	engine := &Engine{DB: h.db, Log: zerolog.New(&buf).Level(zerolog.DebugLevel)}
-	if err := engine.Pull(context.Background(), h.acct, h.d.Client(t)); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, engine.Pull(context.Background(), h.acct, h.d.Client(t)))
 	return &buf
 }
 
@@ -71,15 +68,13 @@ func TestFullSyncAndDelta(t *testing.T) {
 	h.d.AddFile("b", "b.txt", "docs", "text/plain", []byte("bravo"))
 
 	logs := h.run(t)
-	if logs.has(`"level":"warn"`) {
-		t.Errorf("unexpected warnings: %s", logs.b.String())
-	}
-	if got, err := os.ReadFile(filepath.Join(h.local, "a.txt")); err != nil || string(got) != "hello" {
-		t.Errorf("a.txt = %q, err %v, want hello", got, err)
-	}
-	if got, err := os.ReadFile(filepath.Join(h.local, "docs", "b.txt")); err != nil || string(got) != "bravo" {
-		t.Errorf("docs/b.txt = %q, err %v, want bravo", got, err)
-	}
+	require.False(t, logs.has(`"level":"warn"`), "unexpected warnings: %s", logs.b.String())
+	got, err := os.ReadFile(filepath.Join(h.local, "a.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "hello", string(got))
+	got, err = os.ReadFile(filepath.Join(h.local, "docs", "b.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "bravo", string(got))
 }
 
 func TestModifyReDownloads(t *testing.T) {
@@ -89,9 +84,9 @@ func TestModifyReDownloads(t *testing.T) {
 
 	h.d.UpdateContent("a", []byte("v2-longer"))
 	h.run(t)
-	if got, err := os.ReadFile(filepath.Join(h.local, "a.txt")); err != nil || string(got) != "v2-longer" {
-		t.Errorf("a.txt = %q, err %v, want v2-longer", got, err)
-	}
+	got, err := os.ReadFile(filepath.Join(h.local, "a.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "v2-longer", string(got))
 }
 
 func TestRenameFile(t *testing.T) {
@@ -101,12 +96,10 @@ func TestRenameFile(t *testing.T) {
 
 	h.d.Rename("a", "new.txt")
 	h.run(t)
-	if _, err := os.Stat(filepath.Join(h.local, "old.txt")); !os.IsNotExist(err) {
-		t.Errorf("old.txt still exists: %v", err)
-	}
-	if got, err := os.ReadFile(filepath.Join(h.local, "new.txt")); err != nil || string(got) != "data" {
-		t.Errorf("new.txt = %q, err %v, want data", got, err)
-	}
+	require.NoFileExists(t, filepath.Join(h.local, "old.txt"))
+	got, err := os.ReadFile(filepath.Join(h.local, "new.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "data", string(got))
 }
 
 func TestRenameFolderMovesSubtree(t *testing.T) {
@@ -117,12 +110,10 @@ func TestRenameFolderMovesSubtree(t *testing.T) {
 
 	h.d.Rename("dir", "papers")
 	h.run(t)
-	if _, err := os.Stat(filepath.Join(h.local, "docs")); !os.IsNotExist(err) {
-		t.Errorf("docs still exists: %v", err)
-	}
-	if got, err := os.ReadFile(filepath.Join(h.local, "papers", "b.txt")); err != nil || string(got) != "bravo" {
-		t.Errorf("papers/b.txt = %q, err %v, want bravo", got, err)
-	}
+	require.NoFileExists(t, filepath.Join(h.local, "docs"))
+	got, err := os.ReadFile(filepath.Join(h.local, "papers", "b.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "bravo", string(got))
 }
 
 func TestTrashRemovesLocal(t *testing.T) {
@@ -132,9 +123,7 @@ func TestTrashRemovesLocal(t *testing.T) {
 
 	h.d.Trash("a")
 	h.run(t)
-	if _, err := os.Stat(filepath.Join(h.local, "a.txt")); !os.IsNotExist(err) {
-		t.Errorf("a.txt still exists: %v", err)
-	}
+	require.NoFileExists(t, filepath.Join(h.local, "a.txt"))
 }
 
 func TestNativeDocSkipped(t *testing.T) {
@@ -142,12 +131,8 @@ func TestNativeDocSkipped(t *testing.T) {
 	h.d.AddFile("d", "doc", drivetest.RootID, drivetest.DocMime, []byte("irrelevant"))
 	logs := h.run(t)
 
-	if _, err := os.Stat(filepath.Join(h.local, "doc")); !os.IsNotExist(err) {
-		t.Errorf("native doc materialized: %v", err)
-	}
-	if !logs.has("skipping native doc") {
-		t.Errorf("want skip log, got: %s", logs.b.String())
-	}
+	require.NoFileExists(t, filepath.Join(h.local, "doc"))
+	require.True(t, logs.has("skipping native doc"), "want skip log, got: %s", logs.b.String())
 }
 
 func TestDuplicateLastWriteWins(t *testing.T) {
@@ -156,12 +141,10 @@ func TestDuplicateLastWriteWins(t *testing.T) {
 	h.d.AddFile("c", "same.txt", drivetest.RootID, "text/plain", []byte("second"))
 	logs := h.run(t)
 
-	if got, err := os.ReadFile(filepath.Join(h.local, "same.txt")); err != nil || string(got) != "second" {
-		t.Errorf("same.txt = %q, err %v, want second", got, err)
-	}
-	if !logs.has("last write wins") {
-		t.Errorf("want duplicate warning, got: %s", logs.b.String())
-	}
+	got, err := os.ReadFile(filepath.Join(h.local, "same.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "second", string(got))
+	require.True(t, logs.has("last write wins"), "want duplicate warning, got: %s", logs.b.String())
 }
 
 func TestFolderScopeLimitsSync(t *testing.T) {
@@ -172,10 +155,8 @@ func TestFolderScopeLimitsSync(t *testing.T) {
 	h.d.AddFile("out", "out.txt", drivetest.RootID, "text/plain", []byte("out"))
 	h.run(t)
 
-	if got, err := os.ReadFile(filepath.Join(h.local, "in.txt")); err != nil || string(got) != "in" {
-		t.Errorf("in.txt = %q, err %v, want in", got, err)
-	}
-	if _, err := os.Stat(filepath.Join(h.local, "out.txt")); !os.IsNotExist(err) {
-		t.Errorf("out.txt should not sync: %v", err)
-	}
+	got, err := os.ReadFile(filepath.Join(h.local, "in.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "in", string(got))
+	require.NoFileExists(t, filepath.Join(h.local, "out.txt"))
 }

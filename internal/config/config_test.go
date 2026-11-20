@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func write(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
 	return path
 }
 
@@ -29,16 +29,10 @@ accounts:
     local-dir: /srv/photos
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	a := cfg.Accounts[0]
-	if a.Interval != 45*time.Second {
-		t.Errorf("interval = %s, want 45s", a.Interval)
-	}
-	if len(a.Scopes) == 0 {
-		t.Error("want provider default scopes")
-	}
+	require.Equal(t, 45*time.Second, a.Interval)
+	require.NotEmpty(t, a.Scopes, "want provider default scopes")
 }
 
 func TestLoadPerAccountInterval(t *testing.T) {
@@ -52,12 +46,8 @@ accounts:
     interval: 2m
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.Accounts[0].Interval; got != 2*time.Minute {
-		t.Errorf("interval = %s, want 2m", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 2*time.Minute, cfg.Accounts[0].Interval)
 }
 
 func TestLoadFallsBackToDefaultInterval(t *testing.T) {
@@ -70,12 +60,8 @@ accounts:
     local-dir: /srv/docs
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.Accounts[0].Interval; got != defaultInterval {
-		t.Errorf("interval = %s, want %s", got, defaultInterval)
-	}
+	require.NoError(t, err)
+	require.Equal(t, defaultInterval, cfg.Accounts[0].Interval)
 }
 
 func TestLoadDuplicateName(t *testing.T) {
@@ -92,9 +78,8 @@ accounts:
     client-secret-file: s
     local-dir: /srv/more
 `)
-	if _, err := Load(path); err == nil {
-		t.Error("want duplicate-name error, got nil")
-	}
+	_, err := Load(path)
+	require.Error(t, err, "want duplicate-name error")
 }
 
 func TestLoadMissingFields(t *testing.T) {
@@ -110,9 +95,8 @@ func TestLoadMissingFields(t *testing.T) {
 		"no-accounts":  "defaults:\n  interval: 30s\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Load(write(t, body)); err == nil {
-				t.Errorf("want error, got nil")
-			}
+			_, err := Load(write(t, body))
+			require.Error(t, err)
 		})
 	}
 }

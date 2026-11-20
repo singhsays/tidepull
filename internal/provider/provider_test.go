@@ -1,37 +1,29 @@
 package provider
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestGetGoogle(t *testing.T) {
 	spec, err := Get("google")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if spec.Name != "google" {
-		t.Errorf("name = %q, want google", spec.Name)
-	}
-	if spec.Endpoint.AuthURL == "" || spec.Endpoint.TokenURL == "" {
-		t.Errorf("endpoint incomplete: %+v", spec.Endpoint)
-	}
-	if len(spec.Scopes) == 0 {
-		t.Error("want at least one scope")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "google", spec.Name)
+	require.NotEmpty(t, spec.Endpoint.AuthURL)
+	require.NotEmpty(t, spec.Endpoint.TokenURL)
+	require.NotEmpty(t, spec.Scopes)
 }
 
 func TestGetUnknown(t *testing.T) {
-	if _, err := Get("dropbox"); err == nil {
-		t.Error("want error for unknown provider, got nil")
-	}
+	_, err := Get("dropbox")
+	require.Error(t, err)
 }
 
 func TestNames(t *testing.T) {
 	names := Names()
-	if len(names) == 0 {
-		t.Fatal("want at least one provider")
-	}
+	require.NotEmpty(t, names)
 	for i := 1; i < len(names); i++ {
-		if names[i-1] >= names[i] {
-			t.Errorf("names not sorted: %v", names)
-		}
+		require.Less(t, names[i-1], names[i], "names not sorted: %v", names)
 	}
 }
