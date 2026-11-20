@@ -28,6 +28,20 @@ builds:
 checksum:
   name_template: checksums.txt
 
+# One linux/amd64 image per release; binaries cover the other platforms.
+dockers_v2:
+  - images:
+      - ghcr.io/singhsays/tidepull
+    tags:
+      - v{{ .Version }}
+      - latest
+    platforms:
+      - linux/amd64
+    annotations:
+      "org.opencontainers.image.source": "{{ .GitURL }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.version": "{{ .Version }}"
+
 changelog:
   use: git
   groups:

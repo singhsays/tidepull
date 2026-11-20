@@ -39,6 +39,16 @@ macOS, amd64 and arm64 — or install with Go:
 go install github.com/singhsays/tidepull/cmd/tidepull@latest
 ```
 
+Linux amd64 release images are also published to ghcr.io (`vX.Y.Z` and
+`latest` tags). The image runs as a non-root user by default; run it
+with a user matching the local directory's ownership:
+
+```
+docker run -d --name tidepull --user 1000:1000 \
+  -v /srv/documents:/srv/documents \
+  ghcr.io/singhsays/tidepull:v0.2.0 daemon -c /etc/tidepull/config.yaml
+```
+
 ## Quick start
 
 1. Create an OAuth app for your provider and put the client ID and
