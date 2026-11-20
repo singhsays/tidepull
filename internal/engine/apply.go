@@ -49,8 +49,8 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 		files[f.ID] = f
 		return nil
 	}
-	if isNativeDocRow(f) {
-		e.Log.Debug().Str("file", f.Name).Str("id", f.ID).Msg("skipping native doc")
+	if res.excluded(acct, f) {
+		e.Log.Debug().Str("file", f.Name).Str("id", f.ID).Msg("file excluded")
 		return nil
 	}
 
@@ -72,7 +72,7 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 	if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
 		return err
 	}
-	e.warnDuplicate(acct, files, f, newPath)
+	e.warnDuplicate(acct, res, files, f, newPath)
 
 	if !known || old.MD5 != f.MD5 {
 		if err := e.download(ctx, res.client, f, newPath); err != nil {
@@ -121,7 +121,7 @@ func (e *Engine) download(ctx context.Context, client Client, f state.File, loca
 // removeLocal deletes the local copy of a removed file.
 func (e *Engine) removeLocal(acct config.Account, files map[string]state.File, fileID string) error {
 	row, ok := files[fileID]
-	if !ok || isFolderRow(row) || isNativeDocRow(row) {
+	if !ok || isFolderRow(row) {
 		return nil
 	}
 	path := e.localPath(acct, resolvedPath(acct, files, row))
@@ -159,9 +159,9 @@ func (e *Engine) renameFolder(acct config.Account, files map[string]state.File, 
 
 // warnDuplicate logs the last-wins policy when another known file maps
 // to the same local path.
-func (e *Engine) warnDuplicate(acct config.Account, files map[string]state.File, f state.File, localPath string) {
+func (e *Engine) warnDuplicate(acct config.Account, res *resolver, files map[string]state.File, f state.File, localPath string) {
 	for id, row := range files {
-		if id == f.ID || isFolderRow(row) || isNativeDocRow(row) {
+		if id == f.ID || isFolderRow(row) || res.excluded(acct, row) {
 			continue
 		}
 		if e.localPath(acct, resolvedPath(acct, files, row)) == localPath {

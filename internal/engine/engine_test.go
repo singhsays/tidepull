@@ -132,7 +132,7 @@ func TestNativeDocSkipped(t *testing.T) {
 	logs := h.run(t)
 
 	require.NoFileExists(t, filepath.Join(h.local, "doc"))
-	require.True(t, logs.has("skipping native doc"), "want skip log, got: %s", logs.b.String())
+	require.True(t, logs.has(`"message":"file excluded"`), "want skip log, got: %s", logs.b.String())
 }
 
 func TestDuplicateLastWriteWins(t *testing.T) {
@@ -145,6 +145,43 @@ func TestDuplicateLastWriteWins(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "second", string(got))
 	require.True(t, logs.has("last write wins"), "want duplicate warning, got: %s", logs.b.String())
+}
+
+func TestExcludeAdditionalMime(t *testing.T) {
+	h := newHarness(t)
+	h.acct.Exclude = []string{"text/plain"}
+	h.d.AddFile("a", "a.txt", drivetest.RootID, "text/plain", []byte("skip me"))
+	h.d.AddFile("p", "p.png", drivetest.RootID, "image/png", []byte("keep me"))
+	h.run(t)
+
+	require.NoFileExists(t, filepath.Join(h.local, "a.txt"))
+	got, err := os.ReadFile(filepath.Join(h.local, "p.png"))
+	require.NoError(t, err)
+	require.Equal(t, "keep me", string(got))
+}
+
+func TestExcludeChangeRemovesLocal(t *testing.T) {
+	h := newHarness(t)
+	h.d.AddFile("a", "a.txt", drivetest.RootID, "text/plain", []byte("data"))
+	h.run(t)
+
+	h.acct.Exclude = []string{"text/plain"}
+	h.run(t)
+	require.NoFileExists(t, filepath.Join(h.local, "a.txt"))
+}
+
+func TestExcludeRemovedDownloadsAgain(t *testing.T) {
+	h := newHarness(t)
+	h.acct.Exclude = []string{"text/plain"}
+	h.d.AddFile("a", "a.txt", drivetest.RootID, "text/plain", []byte("data"))
+	h.run(t)
+	require.NoFileExists(t, filepath.Join(h.local, "a.txt"))
+
+	h.acct.Exclude = nil
+	h.run(t)
+	got, err := os.ReadFile(filepath.Join(h.local, "a.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "data", string(got))
 }
 
 func TestFolderScopeLimitsSync(t *testing.T) {

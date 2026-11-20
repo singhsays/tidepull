@@ -75,10 +75,6 @@ func isFolderRow(f state.File) bool {
 	return f.MimeType == google.FolderMime
 }
 
-func isNativeDocRow(f state.File) bool {
-	return google.IsNativeMime(f.MimeType)
-}
-
 // resolvedPath walks the parent chain of start and its cached ancestors,
 // returning the path relative to the scope root (no account dir).
 func resolvedPath(acct config.Account, files map[string]state.File, start state.File) []string {

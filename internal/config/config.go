@@ -34,6 +34,9 @@ type Account struct {
 	FolderID string `yaml:"folder-id"`
 	// LocalDir is where pulled files land.
 	LocalDir string `yaml:"local-dir"`
+	// Exclude adds MIME types to skip, in addition to the provider's
+	// own exclusions for formats it cannot sync.
+	Exclude []string `yaml:"exclude"`
 	// Interval between change polls, e.g. 30s.
 	Interval time.Duration `yaml:"interval"`
 }

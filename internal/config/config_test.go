@@ -35,6 +35,23 @@ accounts:
 	require.NotEmpty(t, a.Scopes, "want provider default scopes")
 }
 
+func TestLoadExclude(t *testing.T) {
+	path := write(t, `
+accounts:
+  - name: docs
+    provider: google
+    client-id: id
+    client-secret-file: /run/secrets/secret
+    local-dir: /srv/docs
+    exclude:
+      - text/csv
+      - application/vnd.google-apps.form
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, []string{"text/csv", "application/vnd.google-apps.form"}, cfg.Accounts[0].Exclude)
+}
+
 func TestLoadPerAccountInterval(t *testing.T) {
 	path := write(t, `
 accounts:

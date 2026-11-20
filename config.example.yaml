@@ -18,6 +18,10 @@ accounts:
     # scopes override the provider defaults:
     # scopes:
     #   - https://www.googleapis.com/auth/drive.readonly
+    # exclude adds MIME types to skip, in addition to the provider's
+    # own exclusions for formats it cannot sync:
+    # exclude:
+    #   - text/csv
     # Empty folder-id pulls the account's root.
     folder-id: 1AbCdEf_GhiJkLmNoPqRsTuVwXyZ
     local-dir: /srv/photos

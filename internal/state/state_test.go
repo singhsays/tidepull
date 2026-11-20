@@ -51,6 +51,23 @@ func TestTokenLoadMissing(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoToken)
 }
 
+func TestMetaRoundTrip(t *testing.T) {
+	db := open(t)
+	got, err := db.MetaLoad("photos", "exclude_hash")
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	require.NoError(t, db.MetaSave("photos", "exclude_hash", "abc"))
+	require.NoError(t, db.MetaSave("photos", "exclude_hash", "def"))
+	got, err = db.MetaLoad("photos", "exclude_hash")
+	require.NoError(t, err)
+	require.Equal(t, "def", got)
+
+	got, err = db.MetaLoad("other", "exclude_hash")
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
 func TestOpenTwiceMigratesIdempotently(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	first, err := Open(path)

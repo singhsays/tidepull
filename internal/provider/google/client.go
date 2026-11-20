@@ -3,11 +3,15 @@
 package google
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -45,6 +49,7 @@ func withRetry(hc *http.Client) *http.Client {
 }
 
 // retryPolicy retries only body-less GETs on transient failures.
+// Rate-limit 403s are retried; other 403s are permanent and fail fast.
 func retryPolicy(_ context.Context, res *http.Response, err error) (bool, error) {
 	method := http.MethodGet
 	if res != nil && res.Request != nil {
@@ -58,11 +63,40 @@ func retryPolicy(_ context.Context, res *http.Response, err error) (bool, error)
 	}
 	switch {
 	case res.StatusCode == http.StatusTooManyRequests,
-		res.StatusCode == http.StatusForbidden,
 		res.StatusCode >= 500:
 		return true, nil
+	case res.StatusCode == http.StatusForbidden:
+		return rateLimited(res), nil
 	}
 	return false, nil
+}
+
+// rateLimited reports whether a 403 response indicates a transient rate
+// limit. The body is read and restored for the caller.
+func rateLimited(res *http.Response) bool {
+	data, err := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	if err != nil {
+		return true
+	}
+	res.Body = io.NopCloser(bytes.NewReader(data))
+	var payload struct {
+		Error struct {
+			Errors []struct {
+				Reason string `json:"reason"`
+			} `json:"errors"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return false
+	}
+	for _, e := range payload.Error.Errors {
+		switch e.Reason {
+		case "rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded":
+			return true
+		}
+	}
+	return false
 }
 
 // File is the subset of file metadata the sync needs.
@@ -179,6 +213,21 @@ func (c *Client) ListTree(ctx context.Context, root string) ([]*File, error) {
 // FolderMime is the MIME type of Drive folders.
 const FolderMime = "application/vnd.google-apps.folder"
 
+// nativeMimePrefix prefixes the MIME types of Google Docs Editors files
+// (Docs, Sheets, Slides, Drawings, ...), which have no downloadable
+// binary content.
+const nativeMimePrefix = "application/vnd.google-apps."
+
+// Excluded reports whether the MIME type cannot be synced: Google Docs
+// Editors files (no downloadable binary content; downloading them fails
+// permanently), plus the account-configured exclusions in extra.
+func (c *Client) Excluded(mime string, extra []string) bool {
+	if mime != "" && mime != FolderMime && strings.HasPrefix(mime, nativeMimePrefix) {
+		return true
+	}
+	return slices.Contains(extra, mime)
+}
+
 // GetFile fetches one file's metadata.
 func (c *Client) GetFile(ctx context.Context, fileID string) (*File, error) {
 	f, err := c.svc.Files.Get(fileID).Fields(googleapi.Field(fileFields)).SupportsAllDrives(true).Context(ctx).Do()
@@ -216,20 +265,4 @@ func toFile(f *drive.File) *File {
 	}
 }
 
-// IsFolder reports whether the file is a Drive folder.
-func (f *File) IsFolder() bool {
-	return f.MimeType == FolderMime
-}
 
-// IsNativeDoc reports whether the file is a Google-native document
-// (Docs/Sheets/Slides) with no downloadable binary content.
-func (f *File) IsNativeDoc() bool {
-	return IsNativeMime(f.MimeType)
-}
-
-// IsNativeMime reports whether a MIME type is a Google-native document
-// type (Docs/Sheets/Slides) with no downloadable binary content.
-func IsNativeMime(mime string) bool {
-	const prefix = "application/vnd.google-apps."
-	return mime != "" && mime != FolderMime && len(mime) > len(prefix) && mime[:len(prefix)] == prefix
-}

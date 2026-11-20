@@ -62,6 +62,12 @@ var migrations = []string{
 		size      INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY (account, file_id)
 	);`,
+	`CREATE TABLE IF NOT EXISTS meta (
+		account TEXT NOT NULL,
+		key     TEXT NOT NULL,
+		value   TEXT NOT NULL,
+		PRIMARY KEY (account, key)
+	);`,
 }
 
 func (s *DB) migrate() error {
@@ -133,6 +139,27 @@ func (s *DB) PageTokenLoad(account string) (string, error) {
 		return "", nil
 	}
 	return tok, err
+}
+
+// MetaSave stores one account metadata value.
+func (s *DB) MetaSave(account, key, value string) error {
+	_, err := s.db.Exec(`
+INSERT INTO meta (account, key, value) VALUES (?, ?, ?)
+ON CONFLICT(account, key) DO UPDATE SET value = excluded.value`, account, key, value)
+	if err != nil {
+		return fmt.Errorf("meta save for %q: %w", key, err)
+	}
+	return nil
+}
+
+// MetaLoad reads one account metadata value, "" when absent.
+func (s *DB) MetaLoad(account, key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM meta WHERE account = ? AND key = ?`, account, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return value, err
 }
 
 // File is one known remote file or folder in the account's tree.

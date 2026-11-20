@@ -34,9 +34,26 @@ func (e *Engine) Pull(ctx context.Context, acct config.Account, client Client) e
 	if err != nil {
 		return err
 	}
-	if pageToken == "" {
-		return e.fullSync(ctx, acct, res, files)
+	hash := excludeHash(acct.Exclude)
+	saved, err := e.DB.MetaLoad(acct.Name, metaExcludeHash)
+	if err != nil {
+		return err
 	}
+	if pageToken == "" || (saved != "" && saved != hash) {
+		if saved != "" && saved != hash {
+			e.Log.Info().Msg("exclude list changed, resyncing")
+		}
+		if err := e.fullSync(ctx, acct, res, files); err != nil {
+			return err
+		}
+	} else if err := e.pullChanges(ctx, acct, res, client, files, pageToken); err != nil {
+		return err
+	}
+	return e.DB.MetaSave(acct.Name, metaExcludeHash, hash)
+}
+
+// pullChanges applies change-stream deltas starting from pageToken.
+func (e *Engine) pullChanges(ctx context.Context, acct config.Account, res *resolver, client Client, files map[string]state.File, pageToken string) error {
 	for {
 		changes, next, end, err := client.Changes(ctx, pageToken)
 		if err != nil {
@@ -72,9 +89,10 @@ func (e *Engine) fullSync(ctx context.Context, acct config.Account, res *resolve
 		listedByID[f.ID] = f
 	}
 
-	// Local files whose remote entries disappeared are removed.
+	// Local files whose remote entries disappeared, or that the exclude
+	// list now covers, are removed.
 	for id, row := range files {
-		if _, ok := listedByID[id]; !ok && !isFolderRow(row) && !isNativeDocRow(row) {
+		if _, listed := listedByID[id]; !listed || res.excluded(acct, row) {
 			if err := e.removeLocal(acct, files, id); err != nil {
 				return err
 			}
