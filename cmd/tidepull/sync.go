@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/singhsays/tidepull/internal/config"
 	"github.com/singhsays/tidepull/internal/engine"
 	"github.com/singhsays/tidepull/internal/provider"
+	"github.com/singhsays/tidepull/internal/provider/dropbox"
 	"github.com/singhsays/tidepull/internal/provider/google"
 	"github.com/singhsays/tidepull/internal/state"
 )
@@ -83,6 +85,18 @@ func pullCycle(ctx context.Context, db *state.DB, acct config.Account) {
 	}
 }
 
+// providerClient builds the account's provider client on the given
+// authenticated HTTP client.
+func providerClient(ctx context.Context, acct config.Account, hc *http.Client) (engine.Client, error) {
+	switch acct.Provider {
+	case "google":
+		return google.New(ctx, hc)
+	case "dropbox":
+		return dropbox.New(hc, acct.FolderID, "", ""), nil
+	}
+	return nil, fmt.Errorf("unknown provider %q", acct.Provider)
+}
+
 // pullAccount pulls one account's tree into its local directory.
 func pullAccount(ctx context.Context, db *state.DB, acct config.Account) error {
 	spec, err := provider.Get(acct.Provider)
@@ -93,7 +107,7 @@ func pullAccount(ctx context.Context, db *state.DB, acct config.Account) error {
 	if err != nil {
 		return err
 	}
-	client, err := google.New(ctx, hc)
+	client, err := providerClient(ctx, acct, hc)
 	if err != nil {
 		return err
 	}

@@ -21,9 +21,9 @@ import (
 func (e *Engine) applyChange(ctx context.Context, acct config.Account, res *resolver, ch *model.Change, files map[string]state.File) error {
 	if ch.Removed || ch.File == nil { // trashed entries arrive as removed
 		if ch.Path != "" {
-			return e.removeByPath(acct, files, ch.Path)
+			return e.removeByPath(acct, res, files, ch.Path)
 		}
-		if err := e.removeLocal(acct, files, ch.FileID); err != nil {
+		if err := e.removeLocal(acct, res, files, ch.FileID); err != nil {
 			return err
 		}
 		if err := e.DB.FileDelete(acct.Name, ch.FileID); err != nil {
@@ -44,7 +44,7 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 		return nil
 	}
 	if f.Folder {
-		if err := e.renameFolder(acct, files, f); err != nil {
+		if err := e.renameFolder(acct, res, files, f); err != nil {
 			return err
 		}
 		if err := e.DB.FileUpsert(acct.Name, f); err != nil {
@@ -63,9 +63,9 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 		return nil
 	}
 
-	newPath := e.localPath(acct, resolvedPath(acct, files, f))
+	newPath := e.localPath(acct, resolvedPath(res.scopeRoot, files, f))
 	if known {
-		oldPath := e.localPath(acct, resolvedPath(acct, files, old))
+		oldPath := e.localPath(acct, resolvedPath(res.scopeRoot, files, old))
 		if oldPath != newPath {
 			if err := os.Rename(oldPath, newPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
@@ -143,12 +143,12 @@ func (e *Engine) download(ctx context.Context, client Client, f state.File, loca
 }
 
 // removeLocal deletes the local copy of a removed file.
-func (e *Engine) removeLocal(acct config.Account, files map[string]state.File, fileID string) error {
+func (e *Engine) removeLocal(acct config.Account, res *resolver, files map[string]state.File, fileID string) error {
 	row, ok := files[fileID]
 	if !ok || row.Folder {
 		return nil
 	}
-	path := e.localPath(acct, resolvedPath(acct, files, row))
+	path := e.localPath(acct, resolvedPath(res.scopeRoot, files, row))
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -157,14 +157,14 @@ func (e *Engine) removeLocal(acct config.Account, files map[string]state.File, f
 }
 
 // renameFolder renames or moves the local directory of a changed folder.
-func (e *Engine) renameFolder(acct config.Account, files map[string]state.File, f state.File) error {
+func (e *Engine) renameFolder(acct config.Account, res *resolver, files map[string]state.File, f state.File) error {
 	old, known := files[f.ID]
 	if !known || (old.Name == f.Name && old.ParentID == f.ParentID) {
 		return nil
 	}
-	oldPath := e.localPath(acct, resolvedPath(acct, files, old))
+	oldPath := e.localPath(acct, resolvedPath(res.scopeRoot, files, old))
 	files[f.ID] = f
-	newPath := e.localPath(acct, resolvedPath(acct, files, f))
+	newPath := e.localPath(acct, resolvedPath(res.scopeRoot, files, f))
 	files[f.ID] = old
 	if oldPath == "" || oldPath == newPath {
 		return nil
@@ -183,13 +183,13 @@ func (e *Engine) renameFolder(acct config.Account, files map[string]state.File, 
 
 // removeByPath removes the local copy of a provider removal recorded
 // by path rather than by ID.
-func (e *Engine) removeByPath(acct config.Account, files map[string]state.File, path string) error {
+func (e *Engine) removeByPath(acct config.Account, res *resolver, files map[string]state.File, path string) error {
 	want := strings.Split(strings.Trim(path, "/"), "/")
 	for id, row := range files {
-		if row.Folder || !slices.Equal(want, resolvedPath(acct, files, row)) {
+		if row.Folder || !slices.Equal(want, resolvedPath(res.scopeRoot, files, row)) {
 			continue
 		}
-		if err := e.removeLocal(acct, files, id); err != nil {
+		if err := e.removeLocal(acct, res, files, id); err != nil {
 			return err
 		}
 		if err := e.DB.FileDelete(acct.Name, id); err != nil {
@@ -208,7 +208,7 @@ func (e *Engine) warnDuplicate(acct config.Account, res *resolver, files map[str
 		if id == f.ID || row.Folder || res.excluded(acct, row) {
 			continue
 		}
-		if e.localPath(acct, resolvedPath(acct, files, row)) == localPath {
+		if e.localPath(acct, resolvedPath(res.scopeRoot, files, row)) == localPath {
 			e.Log.Warn().Str("path", relLocalPath(acct, localPath)).Str("kept", f.ID).Str("overwritten", id).Msg("duplicate filename on provider, last write wins")
 		}
 	}

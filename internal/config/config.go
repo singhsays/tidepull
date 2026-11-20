@@ -23,10 +23,9 @@ type Account struct {
 	Name string `yaml:"name"`
 	// Provider is the cloud provider key, e.g. "google".
 	Provider string `yaml:"provider"`
-	// ClientID / ClientSecretFile are the OAuth client credentials;
-	// ClientSecretFile is the path to a file holding the secret.
-	ClientID         string `yaml:"client-id"`
-	ClientSecretFile string `yaml:"client-secret-file"`
+	// CredentialsFile holds the OAuth client credentials (client ID
+	// and secret) as JSON, one pair per account.
+	CredentialsFile string `yaml:"credentials-file"`
 	// Scopes overrides the provider's default OAuth scopes.
 	Scopes []string `yaml:"scopes"`
 	// FolderID is the remote folder to pull. Empty means the account's
@@ -41,6 +40,9 @@ type Account struct {
 	// provider-specific type name to the MIME type to export them as
 	// (see the provider's documentation).
 	Export map[string]string `yaml:"export"`
+	// RedirectPort pins the OAuth loopback port for providers that
+	// require pre-registered redirect URIs; 0 binds a random port.
+	RedirectPort int `yaml:"redirect-port"`
 	// Interval between change polls, e.g. 30s.
 	Interval time.Duration `yaml:"interval"`
 }
@@ -107,11 +109,8 @@ func (a *Account) validate() error {
 	if a.Provider == "" {
 		return fmt.Errorf("missing provider")
 	}
-	if a.ClientID == "" {
-		return fmt.Errorf("missing client-id")
-	}
-	if a.ClientSecretFile == "" {
-		return fmt.Errorf("missing client-secret-file")
+	if a.CredentialsFile == "" {
+		return fmt.Errorf("missing credentials-file")
 	}
 	if a.LocalDir == "" {
 		return fmt.Errorf("missing local-dir")

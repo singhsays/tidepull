@@ -12,29 +12,41 @@ import (
 	"github.com/singhsays/tidepull/internal/config"
 )
 
-func TestSecretTrims(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "secret")
-	require.NoError(t, os.WriteFile(path, []byte("  s3cr3t\n"), 0o600))
-	got, err := Secret(account(path))
+func TestCredentials(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "creds.json")
+	require.NoError(t, os.WriteFile(path, []byte(
+		`{"client_id": "id", "client_secret": "s3cr3t"}`), 0o600))
+	id, secret, err := Credentials(account(path))
 	require.NoError(t, err)
-	require.Equal(t, "s3cr3t", got)
+	require.Equal(t, "id", id)
+	require.Equal(t, "s3cr3t", secret)
 }
 
-func TestSecretMissing(t *testing.T) {
-	_, err := Secret(account(filepath.Join(t.TempDir(), "absent")))
-	require.Error(t, err, "want error for missing secret file")
+func TestCredentialsInstalledWrapper(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "creds.json")
+	require.NoError(t, os.WriteFile(path, []byte(
+		`{"installed": {"client_id": "id", "client_secret": "s3cr3t", "other": 1}}`), 0o600))
+	id, secret, err := Credentials(account(path))
+	require.NoError(t, err)
+	require.Equal(t, "id", id)
+	require.Equal(t, "s3cr3t", secret)
 }
 
-func TestSecretEmptyFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "secret")
-	require.NoError(t, os.WriteFile(path, []byte("\n"), 0o600))
-	_, err := Secret(account(path))
-	require.Error(t, err, "want error for empty secret file")
+func TestCredentialsMissingFile(t *testing.T) {
+	_, _, err := Credentials(account(filepath.Join(t.TempDir(), "absent")))
+	require.Error(t, err, "want error for missing credentials file")
 }
 
-// account builds an Account with only the fields Secret uses.
-func account(secretFile string) config.Account {
-	return config.Account{ClientSecretFile: secretFile}
+func TestCredentialsIncomplete(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "creds.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"client_id": "id"}`), 0o600))
+	_, _, err := Credentials(account(path))
+	require.Error(t, err, "want error for missing client_secret")
+}
+
+// account builds an Account with only the fields Credentials uses.
+func account(credentialsFile string) config.Account {
+	return config.Account{CredentialsFile: credentialsFile}
 }
 
 func TestCallbackHandler(t *testing.T) {

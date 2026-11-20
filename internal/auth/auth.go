@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -13,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"strings"
 
 	"golang.org/x/oauth2"
 
@@ -29,28 +29,44 @@ type TokenStore interface {
 	TokenLoad(name string) (*oauth2.Token, error)
 }
 
-// Secret reads and trims the account's client secret file.
-func Secret(acct config.Account) (string, error) {
-	raw, err := os.ReadFile(acct.ClientSecretFile)
+// Credentials reads the account's credentials file: a JSON object with
+// client_id and client_secret fields, either at the top level or under
+// the "installed" wrapper used by provider downloads (e.g. Google).
+func Credentials(acct config.Account) (id, secret string, err error) {
+	raw, err := os.ReadFile(acct.CredentialsFile)
 	if err != nil {
-		return "", fmt.Errorf("client secret: %w", err)
+		return "", "", fmt.Errorf("credentials: %w", err)
 	}
-	secret := strings.TrimSpace(string(raw))
-	if secret == "" {
-		return "", fmt.Errorf("client secret: %s is empty", acct.ClientSecretFile)
+	var doc struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+		Installed    *struct {
+			ClientID     string `json:"client_id"`
+			ClientSecret string `json:"client_secret"`
+		} `json:"installed"`
 	}
-	return secret, nil
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return "", "", fmt.Errorf("credentials: parse %s: %w", acct.CredentialsFile, err)
+	}
+	if doc.Installed != nil {
+		doc.ClientID = doc.Installed.ClientID
+		doc.ClientSecret = doc.Installed.ClientSecret
+	}
+	if doc.ClientID == "" || doc.ClientSecret == "" {
+		return "", "", fmt.Errorf("credentials: %s needs client_id and client_secret", acct.CredentialsFile)
+	}
+	return doc.ClientID, doc.ClientSecret, nil
 }
 
 // oauthConfig assembles the OAuth2 config for an account. The redirect URL
 // is filled in per login attempt (loopback with a random free port).
-func oauthConfig(acct config.Account, spec provider.Spec, secret, redirectURL string) *oauth2.Config {
+func oauthConfig(id, secret string, spec provider.Spec, scopes []string, redirectURL string) *oauth2.Config {
 	return &oauth2.Config{
-		ClientID:     acct.ClientID,
+		ClientID:     id,
 		ClientSecret: secret,
 		Endpoint:     spec.Endpoint,
 		RedirectURL:  redirectURL,
-		Scopes:       acct.Scopes,
+		Scopes:       scopes,
 	}
 }
 
@@ -58,7 +74,7 @@ func oauthConfig(acct config.Account, spec provider.Spec, secret, redirectURL st
 // the provider's consent page in a browser, exchange the redirect's code
 // (with PKCE) and store the returned token.
 func Login(ctx context.Context, acct config.Account, spec provider.Spec, store TokenStore) (*oauth2.Token, error) {
-	secret, err := Secret(acct)
+	id, secret, err := Credentials(acct)
 	if err != nil {
 		return nil, err
 	}
@@ -68,14 +84,21 @@ func Login(ctx context.Context, acct config.Account, spec provider.Spec, store T
 	if err != nil {
 		return nil, err
 	}
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	// Providers whose redirect URIs must match a pre-registered address
+	// (Dropbox) need a fixed port; random ports otherwise.
+	listen := "127.0.0.1:0"
+	if acct.RedirectPort != 0 {
+		listen = fmt.Sprintf("127.0.0.1:%d", acct.RedirectPort)
+	}
+	l, err := net.Listen("tcp", listen)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listen %s: %w", listen, err)
 	}
 	defer func() { _ = l.Close() }()
 
-	conf := oauthConfig(acct, spec, secret, fmt.Sprintf("http://127.0.0.1:%d/", l.Addr().(*net.TCPAddr).Port))
-	authURL := conf.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
+	conf := oauthConfig(id, secret, spec, acct.Scopes, fmt.Sprintf("http://127.0.0.1:%d/", l.Addr().(*net.TCPAddr).Port))
+	opts := append([]oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}, spec.AuthParams...)
+	authURL := conf.AuthCodeURL(state, opts...)
 	fmt.Printf("Authorize %q in your browser:\n\n  %s\n", acct.Name, authURL)
 	if err := openBrowser(authURL); err != nil {
 		fmt.Println("(could not open a browser; open the URL above manually)")
@@ -157,7 +180,7 @@ func openBrowser(url string) error {
 // Client returns an HTTP client for the account that refreshes and
 // persists tokens automatically.
 func Client(ctx context.Context, acct config.Account, spec provider.Spec, store TokenStore) (*http.Client, error) {
-	secret, err := Secret(acct)
+	id, secret, err := Credentials(acct)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +188,7 @@ func Client(ctx context.Context, acct config.Account, spec provider.Spec, store 
 	if err != nil {
 		return nil, err
 	}
-	conf := oauthConfig(acct, spec, secret, "")
+	conf := oauthConfig(id, secret, spec, acct.Scopes, "")
 	src := conf.TokenSource(ctx, tok)
 	return &http.Client{
 		Transport: &oauth2.Transport{

@@ -96,7 +96,7 @@ func (e *Engine) fullSync(ctx context.Context, acct config.Account, res *resolve
 	// list now covers, are removed.
 	for id, row := range files {
 		if _, listed := listedByID[id]; !listed || res.excluded(acct, row) {
-			if err := e.removeLocal(acct, files, id); err != nil {
+			if err := e.removeLocal(acct, res, files, id); err != nil {
 				return err
 			}
 		}

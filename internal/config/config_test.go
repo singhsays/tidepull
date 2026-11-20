@@ -24,8 +24,7 @@ defaults:
 accounts:
   - name: photos
     provider: google
-    client-id: id
-    client-secret-file: /run/secrets/secret
+    credentials-file: /run/secrets/creds.json
     local-dir: /srv/photos
 `)
 	cfg, err := Load(path)
@@ -40,8 +39,7 @@ func TestLoadExclude(t *testing.T) {
 accounts:
   - name: docs
     provider: google
-    client-id: id
-    client-secret-file: /run/secrets/secret
+    credentials-file: /run/secrets/creds.json
     local-dir: /srv/docs
     exclude:
       - text/csv
@@ -57,8 +55,7 @@ func TestLoadPerAccountInterval(t *testing.T) {
 accounts:
   - name: docs
     provider: google
-    client-id: id
-    client-secret-file: /run/secrets/secret
+    credentials-file: /run/secrets/creds.json
     local-dir: /srv/docs
     interval: 2m
 `)
@@ -72,8 +69,7 @@ func TestLoadFallsBackToDefaultInterval(t *testing.T) {
 accounts:
   - name: docs
     provider: google
-    client-id: id
-    client-secret-file: /run/secrets/secret
+    credentials-file: /run/secrets/creds.json
     local-dir: /srv/docs
 `)
 	cfg, err := Load(path)
@@ -86,13 +82,11 @@ func TestLoadDuplicateName(t *testing.T) {
 accounts:
   - name: docs
     provider: google
-    client-id: id
-    client-secret-file: s
+    credentials-file: s
     local-dir: /srv/docs
   - name: docs
     provider: google
-    client-id: id
-    client-secret-file: s
+    credentials-file: s
     local-dir: /srv/more
 `)
 	_, err := Load(path)
@@ -101,15 +95,14 @@ accounts:
 
 func TestLoadMissingFields(t *testing.T) {
 	for name, body := range map[string]string{
-		"no-name":      "accounts:\n  - provider: google\n    client-id: id\n    client-secret-file: s\n    local-dir: /d\n",
-		"bad-name":     "accounts:\n  - name: a/b\n    provider: google\n    client-id: id\n    client-secret-file: s\n    local-dir: /d\n",
-		"no-provider":  "accounts:\n  - name: a\n    client-id: id\n    client-secret-file: s\n    local-dir: /d\n",
-		"bad-provider": "accounts:\n  - name: a\n    provider: b2\n    client-id: id\n    client-secret-file: s\n    local-dir: /d\n",
-		"no-client-id": "accounts:\n  - name: a\n    provider: google\n    client-secret-file: s\n    local-dir: /d\n",
-		"no-secret":    "accounts:\n  - name: a\n    provider: google\n    client-id: id\n    local-dir: /d\n",
-		"no-local-dir": "accounts:\n  - name: a\n    provider: google\n    client-id: id\n    client-secret-file: s\n",
-		"too-fast":     "accounts:\n  - name: a\n    provider: google\n    client-id: id\n    client-secret-file: s\n    local-dir: /d\n    interval: 100ms\n",
-		"no-accounts":  "defaults:\n  interval: 30s\n",
+		"no-name":          "accounts:\n  - provider: google\n    credentials-file: s\n    local-dir: /d\n",
+		"bad-name":         "accounts:\n  - name: a/b\n    provider: google\n    credentials-file: s\n    local-dir: /d\n",
+		"no-provider":      "accounts:\n  - name: a\n    credentials-file: s\n    local-dir: /d\n",
+		"bad-provider":     "accounts:\n  - name: a\n    provider: b2\n    credentials-file: s\n    local-dir: /d\n",
+		"no-credentials":   "accounts:\n  - name: a\n    provider: google\n    local-dir: /d\n",
+		"no-local-dir":     "accounts:\n  - name: a\n    provider: google\n    credentials-file: s\n",
+		"too-fast":         "accounts:\n  - name: a\n    provider: google\n    credentials-file: s\n    local-dir: /d\n    interval: 100ms\n",
+		"no-accounts":      "defaults:\n  interval: 30s\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Load(write(t, body))

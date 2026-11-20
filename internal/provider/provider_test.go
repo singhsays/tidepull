@@ -16,8 +16,18 @@ func TestGetGoogle(t *testing.T) {
 }
 
 func TestGetUnknown(t *testing.T) {
-	_, err := Get("dropbox")
+	_, err := Get("bogus")
 	require.Error(t, err)
+}
+
+func TestGetDropbox(t *testing.T) {
+	spec, err := Get("dropbox")
+	require.NoError(t, err)
+	require.Equal(t, "dropbox", spec.Name)
+	require.NotEmpty(t, spec.Endpoint.AuthURL)
+	require.Contains(t, spec.Scopes, "files.metadata.read")
+	require.Contains(t, spec.Scopes, "files.content.read")
+	require.NotEmpty(t, spec.AuthParams, "dropbox needs offline access for refresh tokens")
 }
 
 func TestNames(t *testing.T) {

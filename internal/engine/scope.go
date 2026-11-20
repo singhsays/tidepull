@@ -13,28 +13,34 @@ import (
 // caching ancestors it had to fetch.
 type resolver struct {
 	client Client
-	// scopeRoot is the folder being synced, or the account's My Drive
-	// root ID when FolderID is empty.
+	// scopeRoot is the provider ID of the folder being synced. Empty
+	// means the account's whole root, which for some providers has no
+	// ID of its own.
 	scopeRoot string
 }
 
-// newResolver resolves the scope root once per cycle. Empty FolderID
-// means the whole drive, whose root file ID is resolved from "root".
+// newResolver resolves the scope root's provider ID once per cycle.
+// Empty FolderID means the whole account root, which the provider
+// resolves from the "root" sentinel.
 func newResolver(ctx context.Context, client Client, folderID string) (*resolver, error) {
-	scopeRoot := folderID
-	if scopeRoot == "" {
-		root, err := client.GetFile(ctx, "root")
-		if err != nil {
-			return nil, err
-		}
-		scopeRoot = root.ID
+	lookup := folderID
+	if lookup == "" {
+		lookup = "root"
 	}
-	return &resolver{client: client, scopeRoot: scopeRoot}, nil
+	root, err := client.GetFile(ctx, lookup)
+	if err != nil {
+		return nil, err
+	}
+	return &resolver{client: client, scopeRoot: root.ID}, nil
 }
 
 // inScope walks the file's ancestor chain (fetching and caching missing
-// ancestors) and reports whether it reaches the scope root.
+// ancestors) and reports whether it reaches the scope root. An empty
+// scope root means the whole account is in scope.
 func (r *resolver) inScope(ctx context.Context, files map[string]state.File, f state.File) bool {
+	if r.scopeRoot == "" {
+		return true
+	}
 	id := f.ParentID
 	for depth := 0; depth < 64; depth++ {
 		if id == r.scopeRoot {
@@ -69,12 +75,13 @@ func toStateFile(f *model.File) state.File {
 }
 
 // resolvedPath walks the parent chain of start and its cached ancestors,
-// returning the path relative to the scope root (no account dir).
-func resolvedPath(acct config.Account, files map[string]state.File, start state.File) []string {
+// returning the path relative to the scope root (no account dir). The
+// walk stops at the scope root row or an unknown parent.
+func resolvedPath(scopeRoot string, files map[string]state.File, start state.File) []string {
 	var rel []string
 	row := start
 	for depth := 0; depth < 64; depth++ {
-		if acct.FolderID != "" && row.ID == acct.FolderID {
+		if row.ID == scopeRoot {
 			break
 		}
 		rel = append([]string{row.Name}, rel...)

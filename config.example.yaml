@@ -12,9 +12,9 @@ defaults:
 accounts:
   - name: photos
     provider: google
-    client-id: 1234567890-abc.apps.googleusercontent.com
-    # Path to a file holding the client secret.
-    client-secret-file: /run/secrets/tidepull-photos-secret
+    # OAuth client credentials as JSON: client_id and client_secret.
+    # For Google, point this at the downloaded client-secret JSON.
+    credentials-file: /run/secrets/tidepull-photos-credentials
     # scopes override the provider defaults:
     # scopes:
     #   - https://www.googleapis.com/auth/drive.readonly
@@ -35,6 +35,19 @@ accounts:
 
   - name: documents
     provider: google
-    client-id: 1234567890-abc.apps.googleusercontent.com
-    client-secret-file: /run/secrets/tidepull-documents-secret
+    credentials-file: /run/secrets/tidepull-documents-credentials
     local-dir: /srv/documents
+
+  # Dropbox account. folder-id is the path of the folder to sync (or
+  # empty for the whole Dropbox); OAuth client from the Dropbox App
+  # Console with the files.metadata.read and files.content.read scopes.
+  - name: notes
+    provider: dropbox
+    # Dropbox: a JSON file with client_id (the App key) and
+    # client_secret (the App secret).
+    credentials-file: /run/secrets/tidepull-notes-credentials
+    local-dir: /srv/notes
+    folder-id: /Notes
+    # Dropbox requires the redirect URI to match a pre-registered one:
+    # register http://127.0.0.1:53683/ in the app and pin the port here.
+    redirect-port: 53683

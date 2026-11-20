@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/singhsays/tidepull/internal/provider/dropbox"
 	"github.com/singhsays/tidepull/internal/provider/google"
 )
 
@@ -19,11 +20,21 @@ type Spec struct {
 	Endpoint oauth2.Endpoint
 	// Scopes are the default OAuth scopes to request.
 	Scopes []string
+	// AuthParams are extra authorize-URL options the provider needs,
+	// e.g. offline access for refresh tokens.
+	AuthParams []oauth2.AuthCodeOption
 }
 
 // specs is the registry of supported providers.
 var specs = map[string]Spec{
-	"google": {Name: "google", Endpoint: google.Endpoint, Scopes: google.Scopes},
+	"google": {
+		Name: "google", Endpoint: google.Endpoint, Scopes: google.Scopes,
+		AuthParams: []oauth2.AuthCodeOption{oauth2.SetAuthURLParam("access_type", "offline")},
+	},
+	"dropbox": {
+		Name: "dropbox", Endpoint: dropbox.Endpoint, Scopes: dropbox.Scopes,
+		AuthParams: dropbox.AuthParams,
+	},
 }
 
 // Get returns the spec for a provider name.
