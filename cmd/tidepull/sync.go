@@ -56,9 +56,7 @@ func runDaemon(ctx context.Context, cfg *config.Config) error {
 		wg.Add(1)
 		go func(acct config.Account) {
 			defer wg.Done()
-			if err := pullAccount(ctx, db, acct); err != nil {
-				log.Error().Str("account", acct.Name).Err(err).Msg("pull failed")
-			}
+			pullCycle(ctx, db, acct)
 			ticker := time.NewTicker(acct.Interval)
 			defer ticker.Stop()
 			for {
@@ -66,15 +64,23 @@ func runDaemon(ctx context.Context, cfg *config.Config) error {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					if err := pullAccount(ctx, db, acct); err != nil {
-						log.Error().Str("account", acct.Name).Err(err).Msg("pull failed")
-					}
+					pullCycle(ctx, db, acct)
 				}
 			}
 		}(acct)
 	}
 	wg.Wait()
-	return ctx.Err()
+	if err := ctx.Err(); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
+}
+
+// pullCycle runs one pull and logs failures, ignoring shutdown.
+func pullCycle(ctx context.Context, db *state.DB, acct config.Account) {
+	if err := pullAccount(ctx, db, acct); err != nil && !errors.Is(err, context.Canceled) {
+		log.Error().Str("account", acct.Name).Err(err).Msg("pull failed")
+	}
 }
 
 // pullAccount pulls one account's tree into its local directory.
