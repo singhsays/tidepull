@@ -22,6 +22,12 @@ accounts:
     # own exclusions for formats it cannot sync:
     # exclude:
     #   - text/csv
+    # export enables exporting provider-native document types; keys and
+    # targets are provider-specific (google: document, spreadsheet,
+    # presentation, drawing):
+    # export:
+    #   document: text/plain
+    #   spreadsheet: text/csv
     # Empty folder-id pulls the account's root.
     folder-id: 1AbCdEf_GhiJkLmNoPqRsTuVwXyZ
     local-dir: /srv/photos

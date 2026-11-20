@@ -74,9 +74,17 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 	}
 	e.warnDuplicate(acct, res, files, f, newPath)
 
+	target, err := res.client.ExportMime(f.MimeType, acct.Export)
+	if err != nil {
+		return err
+	}
 	if !known || old.MD5 != f.MD5 {
-		if err := e.download(ctx, res.client, f, newPath); err != nil {
+		written, err := e.download(ctx, res.client, f, newPath, target)
+		if err != nil {
 			return err
+		}
+		if f.MD5 == "" {
+			f.MD5 = written
 		}
 		e.Log.Info().Str("path", relLocalPath(acct, newPath)).Int64("size", f.Size).Msg("stored")
 	}
@@ -87,35 +95,47 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 	return nil
 }
 
-// download streams the file content to a temp file, verifies the MD5 and
-// renames it into place.
-func (e *Engine) download(ctx context.Context, client Client, f state.File, localPath string) error {
-	body, err := client.Download(ctx, f.ID)
+// download streams the file content — exported as targetMime when set —
+// to a temp file, verifies the MD5 and renames it into place. It returns
+// the hash of the content written; exported content has no remote
+// checksum, so the caller records this as the file's MD5.
+func (e *Engine) download(ctx context.Context, client Client, f state.File, localPath, targetMime string) (string, error) {
+	var body io.ReadCloser
+	var err error
+	if targetMime != "" {
+		body, err = client.Export(ctx, f.ID, targetMime)
+	} else {
+		body, err = client.Download(ctx, f.ID)
+	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { _ = body.Close() }()
 
 	tmp, err := os.CreateTemp(filepath.Dir(localPath), ".tidepull-*")
 	if err != nil {
-		return err
+		return "", err
 	}
 	tmpName := tmp.Name()
 	hash := md5.New()
 	if _, err := io.Copy(io.MultiWriter(tmp, hash), body); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
-		return err
+		return "", err
 	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpName)
-		return err
+		return "", err
 	}
-	if got := hex.EncodeToString(hash.Sum(nil)); f.MD5 != "" && got != f.MD5 {
+	got := hex.EncodeToString(hash.Sum(nil))
+	if f.MD5 != "" && got != f.MD5 {
 		_ = os.Remove(tmpName)
-		return fmt.Errorf("md5 mismatch for %s: got %s, want %s", f.Name, got, f.MD5)
+		return "", fmt.Errorf("md5 mismatch for %s: got %s, want %s", f.Name, got, f.MD5)
 	}
-	return os.Rename(tmpName, localPath)
+	if err := os.Rename(tmpName, localPath); err != nil {
+		return "", err
+	}
+	return got, nil
 }
 
 // removeLocal deletes the local copy of a removed file.

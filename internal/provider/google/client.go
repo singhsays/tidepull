@@ -228,6 +228,94 @@ func (c *Client) Excluded(mime string, extra []string) bool {
 	return slices.Contains(extra, mime)
 }
 
+// nativeTypes maps the type names used in export configuration to the
+// Google-native MIME types.
+var nativeTypes = map[string]string{
+	"document":     "application/vnd.google-apps.document",
+	"spreadsheet":  "application/vnd.google-apps.spreadsheet",
+	"presentation": "application/vnd.google-apps.presentation",
+	"drawing":      "application/vnd.google-apps.drawing",
+}
+
+// exportTargets lists the export targets each native type supports.
+var exportTargets = map[string][]string{
+	"application/vnd.google-apps.document": {
+		"application/pdf",
+		"application/rtf",
+		"application/vnd.oasis.opendocument.text",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"text/html",
+		"text/plain",
+	},
+	"application/vnd.google-apps.spreadsheet": {
+		"application/pdf",
+		"application/vnd.oasis.opendocument.spreadsheet",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"text/csv",
+		"text/tab-separated-values",
+	},
+	"application/vnd.google-apps.presentation": {
+		"application/pdf",
+		"application/vnd.oasis.opendocument.presentation",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"image/jpeg",
+		"image/png",
+		"image/svg+xml",
+	},
+	"application/vnd.google-apps.drawing": {
+		"application/pdf",
+		"image/jpeg",
+		"image/png",
+		"image/svg+xml",
+	},
+}
+
+// CheckExport validates an account's export configuration: every type
+// must be known and every target must be exportable for it.
+func (c *Client) CheckExport(cfg map[string]string) error {
+	names := make([]string, 0, len(nativeTypes))
+	for name := range nativeTypes {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for name, target := range cfg {
+		src, known := nativeTypes[name]
+		if !known {
+			return fmt.Errorf("export: unknown type %q (supported: %s)", name, strings.Join(names, ", "))
+		}
+		if !slices.Contains(exportTargets[src], target) {
+			return fmt.Errorf("export: %s cannot be exported as %s", name, target)
+		}
+	}
+	return nil
+}
+
+// ExportMime reports the MIME type to export the source type as when
+// the account's export configuration enables it, "" when it does not.
+func (c *Client) ExportMime(mime string, cfg map[string]string) (string, error) {
+	for name, target := range cfg {
+		if nativeTypes[name] == mime {
+			return target, nil
+		}
+	}
+	return "", nil
+}
+
+// Export opens the file's content rendered as the target MIME type.
+// Exported content has no remote checksum; the caller records what it
+// wrote instead.
+func (c *Client) Export(ctx context.Context, fileID, targetMime string) (io.ReadCloser, error) {
+	resp, err := c.svc.Files.Export(fileID, targetMime).Context(ctx).Download()
+	if err != nil {
+		return nil, fmt.Errorf("export %s: %w", fileID, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("export %s: status %d", fileID, resp.StatusCode)
+	}
+	return resp.Body, nil
+}
+
 // GetFile fetches one file's metadata.
 func (c *Client) GetFile(ctx context.Context, fileID string) (*File, error) {
 	f, err := c.svc.Files.Get(fileID).Fields(googleapi.Field(fileFields)).SupportsAllDrives(true).Context(ctx).Do()

@@ -134,6 +134,20 @@ func New(t testing.TB) *Drive {
 		}
 		_ = json.NewEncoder(w).Encode(d.fileJSON(f, -1))
 	})
+	mux.HandleFunc("GET /drive/v3/files/{id}/export", func(w http.ResponseWriter, r *http.Request) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		f, ok := d.files[r.PathValue("id")]
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("mimeType") == "" {
+			http.Error(w, "mimeType required", http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write(f.content)
+	})
 	d.srv = httptest.NewServer(mux)
 	t.Cleanup(d.srv.Close)
 	return d

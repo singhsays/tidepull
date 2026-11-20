@@ -37,6 +37,10 @@ type Account struct {
 	// Exclude adds MIME types to skip, in addition to the provider's
 	// own exclusions for formats it cannot sync.
 	Exclude []string `yaml:"exclude"`
+	// Export enables exporting provider-native document types, keyed by
+	// provider-specific type name to the MIME type to export them as
+	// (see the provider's documentation).
+	Export map[string]string `yaml:"export"`
 	// Interval between change polls, e.g. 30s.
 	Interval time.Duration `yaml:"interval"`
 }

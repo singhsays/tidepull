@@ -10,25 +10,32 @@ import (
 	"github.com/singhsays/tidepull/internal/state"
 )
 
-// metaExcludeHash is the meta key holding the hash of the account's
-// configured exclude list.
-const metaExcludeHash = "exclude_hash"
+// metaPolicyHash is the meta key holding the hash of the account's
+// exclusion and export configuration.
+const metaPolicyHash = "policy_hash"
 
 // excluded reports whether the engine must not sync the file, asking
-// the provider for its exclusion policy. Folders are structural and
+// the provider for its exclusion policy; a MIME type the export
+// configuration enables is never excluded. Folders are structural and
 // never excluded.
 func (r *resolver) excluded(acct config.Account, f state.File) bool {
 	if isFolderRow(f) {
 		return false
 	}
+	if target, err := r.client.ExportMime(f.MimeType, acct.Export); err == nil && target != "" {
+		return false
+	}
 	return r.client.Excluded(f.MimeType, acct.Exclude)
 }
 
-// excludeHash fingerprints the account's configured exclude list so a
-// config change can trigger a full resync.
-func excludeHash(entries []string) string {
-	sorted := slices.Clone(entries)
-	slices.Sort(sorted)
-	sum := sha256.Sum256([]byte(strings.Join(sorted, "\x00")))
+// policyHash fingerprints the account's exclusion and export
+// configuration so a config change can trigger a full resync.
+func policyHash(acct config.Account) string {
+	entries := slices.Clone(acct.Exclude)
+	for name, target := range acct.Export {
+		entries = append(entries, "export "+name+"="+target)
+	}
+	slices.Sort(entries)
+	sum := sha256.Sum256([]byte(strings.Join(entries, "\x00")))
 	return hex.EncodeToString(sum[:])
 }

@@ -22,6 +22,9 @@ type Engine struct {
 // Pull brings the local directory up to date with the provider: delta
 // from the stored page token, or a full resync when there is none.
 func (e *Engine) Pull(ctx context.Context, acct config.Account, client Client) error {
+	if err := client.CheckExport(acct.Export); err != nil {
+		return err
+	}
 	res, err := newResolver(ctx, client, acct.FolderID)
 	if err != nil {
 		return err
@@ -34,22 +37,22 @@ func (e *Engine) Pull(ctx context.Context, acct config.Account, client Client) e
 	if err != nil {
 		return err
 	}
-	hash := excludeHash(acct.Exclude)
-	saved, err := e.DB.MetaLoad(acct.Name, metaExcludeHash)
+	hash := policyHash(acct)
+	saved, err := e.DB.MetaLoad(acct.Name, metaPolicyHash)
 	if err != nil {
 		return err
 	}
-	if pageToken == "" || (saved != "" && saved != hash) {
-		if saved != "" && saved != hash {
-			e.Log.Info().Msg("exclude list changed, resyncing")
+	if pageToken == "" || saved != hash {
+		if pageToken != "" {
+			e.Log.Info().Msg("sync policy changed, resyncing")
 		}
 		if err := e.fullSync(ctx, acct, res, files); err != nil {
 			return err
 		}
-	} else if err := e.pullChanges(ctx, acct, res, client, files, pageToken); err != nil {
-		return err
+		// Record the policy only after a full sync performed under it.
+		return e.DB.MetaSave(acct.Name, metaPolicyHash, hash)
 	}
-	return e.DB.MetaSave(acct.Name, metaExcludeHash, hash)
+	return e.pullChanges(ctx, acct, res, client, files, pageToken)
 }
 
 // pullChanges applies change-stream deltas starting from pageToken.

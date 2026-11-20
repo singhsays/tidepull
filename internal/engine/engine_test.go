@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,6 +184,69 @@ func TestExcludeRemovedDownloadsAgain(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(h.local, "a.txt"))
 	require.NoError(t, err)
 	require.Equal(t, "data", string(got))
+}
+
+func TestExportMaterializesNativeDoc(t *testing.T) {
+	h := newHarness(t)
+	h.acct.Export = map[string]string{"document": "text/plain"}
+	content := []byte("# notes\nbody")
+	h.d.AddFile("d", "notes.md", drivetest.RootID, drivetest.DocMime, content)
+	log := h.run(t)
+
+	got, err := os.ReadFile(filepath.Join(h.local, "notes.md"))
+	require.NoError(t, err)
+	require.Equal(t, "# notes\nbody", string(got))
+	require.False(t, log.has(`"message":"file excluded"`), "exported doc must not be excluded: %s", log.b.String())
+
+	sum := md5.Sum(content)
+	rows, err := h.db.Files("test")
+	require.NoError(t, err)
+	require.Equal(t, hex.EncodeToString(sum[:]), rows["d"].MD5, "state must record the written content hash")
+}
+
+func TestExportUpdatesOnChange(t *testing.T) {
+	h := newHarness(t)
+	h.acct.Export = map[string]string{"document": "text/plain"}
+	h.d.AddFile("d", "notes.md", drivetest.RootID, drivetest.DocMime, []byte("v1"))
+	h.run(t)
+
+	h.d.UpdateContent("d", []byte("v2"))
+	h.run(t)
+	got, err := os.ReadFile(filepath.Join(h.local, "notes.md"))
+	require.NoError(t, err)
+	require.Equal(t, "v2", string(got))
+}
+
+func TestExportRenameMovesLocal(t *testing.T) {
+	h := newHarness(t)
+	h.acct.Export = map[string]string{"document": "text/plain"}
+	h.d.AddFile("d", "old.md", drivetest.RootID, drivetest.DocMime, []byte("data"))
+	h.run(t)
+
+	h.d.Rename("d", "new.md")
+	h.run(t)
+	require.NoFileExists(t, filepath.Join(h.local, "old.md"))
+	got, err := os.ReadFile(filepath.Join(h.local, "new.md"))
+	require.NoError(t, err)
+	require.Equal(t, "data", string(got))
+}
+
+func TestUnExportRemovesLocal(t *testing.T) {
+	h := newHarness(t)
+	h.acct.Export = map[string]string{"document": "text/plain"}
+	h.d.AddFile("d", "notes.md", drivetest.RootID, drivetest.DocMime, []byte("data"))
+	h.run(t)
+
+	h.acct.Export = nil
+	h.run(t)
+	require.NoFileExists(t, filepath.Join(h.local, "notes.md"))
+}
+
+func TestExportInvalidConfigFails(t *testing.T) {
+	h := newHarness(t)
+	h.acct.Export = map[string]string{"form": "text/plain"}
+	engine := &Engine{DB: h.db, Log: zerolog.Nop()}
+	require.Error(t, engine.Pull(context.Background(), h.acct, h.d.Client(t)))
 }
 
 func TestFolderScopeLimitsSync(t *testing.T) {

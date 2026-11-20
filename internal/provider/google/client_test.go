@@ -47,6 +47,24 @@ func TestRetryRetriesRateLimit403(t *testing.T) {
 	require.Equal(t, int32(4), hits.Load(), "rate-limit 403 must be retried (initial + 3 retries)")
 }
 
+func TestCheckExport(t *testing.T) {
+	c := &Client{}
+	require.NoError(t, c.CheckExport(map[string]string{"document": "text/plain", "drawing": "image/svg+xml"}))
+	require.ErrorContains(t, c.CheckExport(map[string]string{"form": "text/plain"}), "unknown type")
+	require.ErrorContains(t, c.CheckExport(map[string]string{"document": "image/png"}), "cannot be exported")
+}
+
+func TestExportMime(t *testing.T) {
+	c := &Client{}
+	cfg := map[string]string{"document": "text/plain"}
+	target, err := c.ExportMime("application/vnd.google-apps.document", cfg)
+	require.NoError(t, err)
+	require.Equal(t, "text/plain", target)
+	target, err = c.ExportMime("application/vnd.google-apps.spreadsheet", cfg)
+	require.NoError(t, err)
+	require.Empty(t, target)
+}
+
 func TestRetrySkipsUnparseable403(t *testing.T) {
 	// Rate-limit 403s always carry a JSON reason; anything else is
 	// permanent and fails fast.
