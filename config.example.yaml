@@ -1,21 +1,30 @@
 # tidepull config — example
+# Copy to $XDG_CONFIG_HOME/tidepull/config.yaml or pass it with -c.
 # Each account is one sync job: a remote folder pulled into a local
 # directory on its own interval.
+#
+# OAuth tokens and sync state are stored in
+# $XDG_DATA_HOME/tidepull/state.db.
 
 defaults:
   interval: 30s
 
 accounts:
   - name: photos
+    provider: google
     client-id: 1234567890-abc.apps.googleusercontent.com
     # Path to a file holding the client secret.
     client-secret-file: /run/secrets/tidepull-photos-secret
+    # scopes override the provider defaults:
+    # scopes:
+    #   - https://www.googleapis.com/auth/drive.readonly
     # Empty folder-id pulls the account's root.
     folder-id: 1AbCdEf_GhiJkLmNoPqRsTuVwXyZ
     local-dir: /srv/photos
     interval: 30s
 
   - name: documents
+    provider: google
     client-id: 1234567890-abc.apps.googleusercontent.com
     client-secret-file: /run/secrets/tidepull-documents-secret
     local-dir: /srv/documents

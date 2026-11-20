@@ -1,0 +1,175 @@
+package engine
+
+import (
+	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+
+	"github.com/singhsays/tidepull/internal/config"
+	"github.com/singhsays/tidepull/internal/provider/google"
+	"github.com/singhsays/tidepull/internal/state"
+)
+
+// applyChange applies one change-stream entry to the local tree.
+func (e *Engine) applyChange(ctx context.Context, acct config.Account, res *resolver, ch *google.Change, files map[string]state.File) error {
+	if ch.Removed || ch.File == nil || ch.File.Trashed {
+		if err := e.removeLocal(acct, files, ch.FileID); err != nil {
+			return err
+		}
+		if err := e.DB.FileDelete(acct.Name, ch.FileID); err != nil {
+			return err
+		}
+		delete(files, ch.FileID)
+		return nil
+	}
+	return e.placeFile(ctx, acct, res, files, toStateFile(ch.File), files[ch.FileID])
+}
+
+// placeFile resolves the file's scope and local path, then renames,
+// downloads or skips it accordingly. The old row, when known, is passed
+// separately so rename detection sees the pre-change state.
+func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolver, files map[string]state.File, f state.File, old state.File) error {
+	if !res.inScope(ctx, files, f) {
+		e.Log.Debug("file out of scope", "account", acct.Name, "file", f.Name, "id", f.ID)
+		return nil
+	}
+	if f.MimeType == google.FolderMime {
+		if err := e.renameFolder(acct, files, f); err != nil {
+			return err
+		}
+		if err := e.DB.FileUpsert(acct.Name, f); err != nil {
+			return err
+		}
+		files[f.ID] = f
+		return nil
+	}
+	if isNativeDocRow(f) {
+		e.Log.Debug("skipping native doc", "account", acct.Name, "file", f.Name, "id", f.ID)
+		return nil
+	}
+
+	known := old.ID == f.ID
+	if known && old.MD5 == f.MD5 && old.Name == f.Name && old.ParentID == f.ParentID {
+		return nil
+	}
+
+	newPath := e.localPath(acct, resolvedPath(acct, files, f))
+	if known {
+		oldPath := e.localPath(acct, resolvedPath(acct, files, old))
+		if oldPath != newPath {
+			if err := os.Rename(oldPath, newPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			e.Log.Info("renamed", "account", acct.Name,
+				"from", relLocalPath(acct, oldPath), "to", relLocalPath(acct, newPath))
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+		return err
+	}
+	e.warnDuplicate(acct, files, f, newPath)
+
+	if !known || old.MD5 != f.MD5 {
+		if err := e.download(ctx, res.client, f, newPath); err != nil {
+			return err
+		}
+		e.Log.Info("stored", "account", acct.Name, "path", relLocalPath(acct, newPath), "size", f.Size)
+	}
+	if err := e.DB.FileUpsert(acct.Name, f); err != nil {
+		return err
+	}
+	files[f.ID] = f
+	return nil
+}
+
+// download streams the file content to a temp file, verifies the MD5 and
+// renames it into place.
+func (e *Engine) download(ctx context.Context, client Client, f state.File, localPath string) error {
+	body, err := client.Download(ctx, f.ID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = body.Close() }()
+
+	tmp, err := os.CreateTemp(filepath.Dir(localPath), ".tidepull-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	hash := md5.New()
+	if _, err := io.Copy(io.MultiWriter(tmp, hash), body); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if got := hex.EncodeToString(hash.Sum(nil)); f.MD5 != "" && got != f.MD5 {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("md5 mismatch for %s: got %s, want %s", f.Name, got, f.MD5)
+	}
+	return os.Rename(tmpName, localPath)
+}
+
+// removeLocal deletes the local copy of a removed file.
+func (e *Engine) removeLocal(acct config.Account, files map[string]state.File, fileID string) error {
+	row, ok := files[fileID]
+	if !ok || isFolderRow(row) || isNativeDocRow(row) {
+		return nil
+	}
+	path := e.localPath(acct, resolvedPath(acct, files, row))
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	e.Log.Info("removed", "account", acct.Name, "path", relLocalPath(acct, path))
+	return nil
+}
+
+// renameFolder renames or moves the local directory of a changed folder.
+func (e *Engine) renameFolder(acct config.Account, files map[string]state.File, f state.File) error {
+	old, known := files[f.ID]
+	if !known || (old.Name == f.Name && old.ParentID == f.ParentID) {
+		return nil
+	}
+	oldPath := e.localPath(acct, resolvedPath(acct, files, old))
+	files[f.ID] = f
+	newPath := e.localPath(acct, resolvedPath(acct, files, f))
+	files[f.ID] = old
+	if oldPath == "" || oldPath == newPath {
+		return nil
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if err := os.MkdirAll(newPath, 0o755); err != nil {
+			return err
+		}
+	}
+	e.Log.Info("renamed", "account", acct.Name,
+		"from", relLocalPath(acct, oldPath), "to", relLocalPath(acct, newPath))
+	return nil
+}
+
+// warnDuplicate logs the last-wins policy when another known file maps
+// to the same local path.
+func (e *Engine) warnDuplicate(acct config.Account, files map[string]state.File, f state.File, localPath string) {
+	for id, row := range files {
+		if id == f.ID || isFolderRow(row) || isNativeDocRow(row) {
+			continue
+		}
+		if e.localPath(acct, resolvedPath(acct, files, row)) == localPath {
+			e.Log.Warn("duplicate filename on provider, last write wins",
+				"account", acct.Name, "path", relLocalPath(acct, localPath),
+				"kept", f.ID, "overwritten", id)
+		}
+	}
+}

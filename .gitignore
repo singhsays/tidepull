@@ -37,6 +37,5 @@ go.work.sum
 bin/
 dist/
 
-# Local config and secrets
+# Local config
 config.yaml
-*.token.json

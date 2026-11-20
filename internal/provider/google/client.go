@@ -1,0 +1,235 @@
+// Package google is the Google provider: its OAuth spec and a thin client
+// over the Drive v3 REST API (change stream, tree listing, media download).
+package google
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
+	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/googleapi"
+	"google.golang.org/api/option"
+)
+
+// Client talks to one Drive account over an authenticated HTTP client.
+type Client struct {
+	svc *drive.Service
+}
+
+// New builds a client on top of an authenticated HTTP client. Requests
+// are retried with exponential backoff on transient failures.
+func New(ctx context.Context, hc *http.Client, opts ...option.ClientOption) (*Client, error) {
+	svc, err := drive.NewService(ctx, append(opts, option.WithHTTPClient(withRetry(hc)))...)
+	if err != nil {
+		return nil, fmt.Errorf("drive service: %w", err)
+	}
+	return &Client{svc: svc}, nil
+}
+
+// withRetry wraps hc with go-retryablehttp: GETs retried up to 3 times
+// with exponential backoff on 429/403/5xx and connection errors.
+func withRetry(hc *http.Client) *http.Client {
+	rc := retryablehttp.NewClient()
+	rc.RetryMax = 3
+	rc.RetryWaitMin = 100 * time.Millisecond
+	rc.RetryWaitMax = 2 * time.Second
+	rc.Logger = nil
+	rc.CheckRetry = retryPolicy
+	rc.HTTPClient = hc
+	return rc.StandardClient()
+}
+
+// retryPolicy retries only body-less GETs on transient failures.
+func retryPolicy(_ context.Context, res *http.Response, err error) (bool, error) {
+	method := http.MethodGet
+	if res != nil && res.Request != nil {
+		method = res.Request.Method
+	}
+	if err != nil {
+		return method == http.MethodGet, err
+	}
+	if method != http.MethodGet {
+		return false, nil
+	}
+	switch {
+	case res.StatusCode == http.StatusTooManyRequests,
+		res.StatusCode == http.StatusForbidden,
+		res.StatusCode >= 500:
+		return true, nil
+	}
+	return false, nil
+}
+
+// File is the subset of file metadata the sync needs.
+type File struct {
+	ID           string
+	Name         string
+	Parents      []string
+	MimeType     string
+	MD5          string
+	Size         int64
+	ModifiedTime string
+	Trashed      bool
+}
+
+// Change is one entry from the change stream.
+type Change struct {
+	FileID  string
+	Removed bool
+	File    *File
+}
+
+// ErrStaleChangeToken reports that a change-stream page token is no
+// longer valid and the stream must be restarted.
+var ErrStaleChangeToken = errors.New("stale change token")
+
+// fileFields is the metadata projection requested from the API.
+const fileFields = "id,name,parents,mimeType,md5Checksum,size,modifiedTime,trashed"
+
+// StartPageToken returns the token marking the current end of the change
+// stream.
+func (c *Client) StartPageToken(ctx context.Context) (string, error) {
+	res, err := c.svc.Changes.GetStartPageToken().SupportsAllDrives(true).Context(ctx).Do()
+	if err != nil {
+		return "", fmt.Errorf("start page token: %w", err)
+	}
+	return res.StartPageToken, nil
+}
+
+// Changes fetches one page of the change stream. It returns the entries,
+// the token to resume from (the next page, or the new end-of-stream token
+// on the last page), and whether the stream caught up.
+func (c *Client) Changes(ctx context.Context, pageToken string) ([]*Change, string, bool, error) {
+	call := c.svc.Changes.List(pageToken).
+		SupportsAllDrives(true).
+		IncludeItemsFromAllDrives(true).
+		Fields(googleapi.Field("nextPageToken,newStartPageToken,changes(fileId,removed,file(" + fileFields + "))")).
+		Context(ctx)
+	res, err := call.Do()
+	if err != nil {
+		var apiErr *googleapi.Error
+		if errors.As(err, &apiErr) && (apiErr.Code == http.StatusNotFound || apiErr.Code == http.StatusBadRequest) {
+			return nil, "", false, fmt.Errorf("changes list: %w: %w", ErrStaleChangeToken, err)
+		}
+		return nil, "", false, fmt.Errorf("changes list: %w", err)
+	}
+	changes := make([]*Change, 0, len(res.Changes))
+	for _, ch := range res.Changes {
+		c := &Change{FileID: ch.FileId, Removed: ch.Removed}
+		if ch.File != nil {
+			c.File = toFile(ch.File)
+		}
+		changes = append(changes, c)
+	}
+	end := res.NextPageToken == ""
+	next := res.NextPageToken
+	if next == "" {
+		next = res.NewStartPageToken
+	}
+	return changes, next, end, nil
+}
+
+// ListTree returns every file and folder under root (recursively), with
+// trashed entries excluded.
+func (c *Client) ListTree(ctx context.Context, root string) ([]*File, error) {
+	var all []*File
+	var walk func(parent string) error
+	walk = func(parent string) error {
+		pageToken := ""
+		for {
+			call := c.svc.Files.List().
+				Q(fmt.Sprintf("'%s' in parents and trashed = false", parent)).
+				Fields(googleapi.Field("nextPageToken,files(" + fileFields + ")")).
+				SupportsAllDrives(true).
+				IncludeItemsFromAllDrives(true).
+				Context(ctx)
+			if pageToken != "" {
+				call = call.PageToken(pageToken)
+			}
+			res, err := call.Do()
+			if err != nil {
+				return fmt.Errorf("files list under %s: %w", parent, err)
+			}
+			for _, f := range res.Files {
+				file := toFile(f)
+				all = append(all, file)
+				if file.MimeType == FolderMime {
+					if err := walk(file.ID); err != nil {
+						return err
+					}
+				}
+			}
+			pageToken = res.NextPageToken
+			if pageToken == "" {
+				return nil
+			}
+		}
+	}
+	if err := walk(root); err != nil {
+		return nil, err
+	}
+	return all, nil
+}
+
+// FolderMime is the MIME type of Drive folders.
+const FolderMime = "application/vnd.google-apps.folder"
+
+// GetFile fetches one file's metadata.
+func (c *Client) GetFile(ctx context.Context, fileID string) (*File, error) {
+	f, err := c.svc.Files.Get(fileID).Fields(googleapi.Field(fileFields)).SupportsAllDrives(true).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("get file %s: %w", fileID, err)
+	}
+	return toFile(f), nil
+}
+
+// Download opens the file's content stream (verified against the known
+// MD5 by the caller).
+func (c *Client) Download(ctx context.Context, fileID string) (io.ReadCloser, error) {
+	resp, err := c.svc.Files.Get(fileID).SupportsAllDrives(true).Context(ctx).Download()
+	if err != nil {
+		return nil, fmt.Errorf("download %s: %w", fileID, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("download %s: status %d", fileID, resp.StatusCode)
+	}
+	return resp.Body, nil
+}
+
+// toFile converts an API file to our projection.
+func toFile(f *drive.File) *File {
+	return &File{
+		ID:           f.Id,
+		Name:         f.Name,
+		Parents:      f.Parents,
+		MimeType:     f.MimeType,
+		MD5:          f.Md5Checksum,
+		Size:         f.Size,
+		ModifiedTime: f.ModifiedTime,
+		Trashed:      f.Trashed,
+	}
+}
+
+// IsFolder reports whether the file is a Drive folder.
+func (f *File) IsFolder() bool {
+	return f.MimeType == FolderMime
+}
+
+// IsNativeDoc reports whether the file is a Google-native document
+// (Docs/Sheets/Slides) with no downloadable binary content.
+func (f *File) IsNativeDoc() bool {
+	return IsNativeMime(f.MimeType)
+}
+
+// IsNativeMime reports whether a MIME type is a Google-native document
+// type (Docs/Sheets/Slides) with no downloadable binary content.
+func IsNativeMime(mime string) bool {
+	const prefix = "application/vnd.google-apps."
+	return mime != "" && mime != FolderMime && len(mime) > len(prefix) && mime[:len(prefix)] == prefix
+}

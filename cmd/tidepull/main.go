@@ -3,19 +3,19 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/alecthomas/kong"
 
+	"github.com/adrg/xdg"
+
 	"github.com/singhsays/tidepull/internal/config"
 	"github.com/singhsays/tidepull/internal/version"
 )
-
-var errNotImplemented = errors.New("not implemented yet")
 
 // CLI is the tidepull command line.
 type CLI struct {
@@ -27,7 +27,7 @@ type CLI struct {
 
 // RunCmd runs one pull cycle.
 type RunCmd struct {
-	Config   string   `short:"c" help:"Path to config file." default:"config.yaml"`
+	Config   string   `short:"c" help:"Path to config file ($XDG_CONFIG_HOME/tidepull/config.yaml)."`
 	Accounts []string `name:"account" help:"Restrict to account(s) by name (repeatable)."`
 }
 
@@ -42,7 +42,7 @@ func (r *RunCmd) Run() error {
 
 // DaemonCmd runs the polling loop.
 type DaemonCmd struct {
-	Config   string   `short:"c" help:"Path to config file." default:"config.yaml"`
+	Config   string   `short:"c" help:"Path to config file ($XDG_CONFIG_HOME/tidepull/config.yaml)."`
 	Accounts []string `name:"account" help:"Restrict to account(s) by name (repeatable)."`
 }
 
@@ -64,7 +64,7 @@ type AuthCmd struct {
 
 // LoginCmd authorizes one account.
 type LoginCmd struct {
-	Config  string `short:"c" help:"Path to config file." default:"config.yaml"`
+	Config  string `short:"c" help:"Path to config file ($XDG_CONFIG_HOME/tidepull/config.yaml)."`
 	Account string `name:"account" arg:"" help:"Account name to authorize."`
 }
 
@@ -86,8 +86,16 @@ func (v *VersionCmd) Run() error {
 	return nil
 }
 
+// defaultConfigPath is the config used when no -c flag is given.
+func defaultConfigPath() string {
+	return filepath.Join(xdg.ConfigHome, "tidepull", "config.yaml")
+}
+
 // loadFiltered loads the config, restricted to the named accounts.
 func loadFiltered(path string, names []string) (*config.Config, error) {
+	if path == "" {
+		path = defaultConfigPath()
+	}
 	cfg, err := config.Load(path)
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
