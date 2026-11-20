@@ -1,0 +1,21 @@
+# tidepull config — example
+# Each account is one sync job: a remote folder pulled into a local
+# directory on its own interval.
+
+defaults:
+  interval: 30s
+
+accounts:
+  - name: photos
+    client-id: 1234567890-abc.apps.googleusercontent.com
+    # Path to a file holding the client secret.
+    client-secret-file: /run/secrets/tidepull-photos-secret
+    # Empty folder-id pulls the account's root.
+    folder-id: 1AbCdEf_GhiJkLmNoPqRsTuVwXyZ
+    local-dir: /srv/photos
+    interval: 30s
+
+  - name: documents
+    client-id: 1234567890-abc.apps.googleusercontent.com
+    client-secret-file: /run/secrets/tidepull-documents-secret
+    local-dir: /srv/documents
