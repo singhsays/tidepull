@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"crypto/md5"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -10,15 +9,20 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/singhsays/tidepull/internal/config"
-	"github.com/singhsays/tidepull/internal/provider/google"
+	"github.com/singhsays/tidepull/internal/model"
 	"github.com/singhsays/tidepull/internal/state"
 )
 
 // applyChange applies one change-stream entry to the local tree.
-func (e *Engine) applyChange(ctx context.Context, acct config.Account, res *resolver, ch *google.Change, files map[string]state.File) error {
-	if ch.Removed || ch.File == nil || ch.File.Trashed {
+func (e *Engine) applyChange(ctx context.Context, acct config.Account, res *resolver, ch *model.Change, files map[string]state.File) error {
+	if ch.Removed || ch.File == nil { // trashed entries arrive as removed
+		if ch.Path != "" {
+			return e.removeByPath(acct, files, ch.Path)
+		}
 		if err := e.removeLocal(acct, files, ch.FileID); err != nil {
 			return err
 		}
@@ -39,7 +43,7 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 		e.Log.Debug().Str("file", f.Name).Str("id", f.ID).Msg("file out of scope")
 		return nil
 	}
-	if f.MimeType == google.FolderMime {
+	if f.Folder {
 		if err := e.renameFolder(acct, files, f); err != nil {
 			return err
 		}
@@ -55,7 +59,7 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 	}
 
 	known := old.ID == f.ID
-	if known && old.MD5 == f.MD5 && old.Name == f.Name && old.ParentID == f.ParentID {
+	if known && old.Hash != "" && old.Hash == f.Hash && old.Name == f.Name && old.ParentID == f.ParentID {
 		return nil
 	}
 
@@ -78,13 +82,13 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 	if err != nil {
 		return err
 	}
-	if !known || old.MD5 != f.MD5 {
+	if !known || old.Hash != f.Hash {
 		written, err := e.download(ctx, res.client, f, newPath, target)
 		if err != nil {
 			return err
 		}
-		if f.MD5 == "" {
-			f.MD5 = written
+		if f.Hash == "" {
+			f.Hash = written
 		}
 		e.Log.Info().Str("path", relLocalPath(acct, newPath)).Int64("size", f.Size).Msg("stored")
 	}
@@ -96,9 +100,9 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 }
 
 // download streams the file content — exported as targetMime when set —
-// to a temp file, verifies the MD5 and renames it into place. It returns
-// the hash of the content written; exported content has no remote
-// checksum, so the caller records this as the file's MD5.
+// to a temp file, verifies the content hash and renames it into place.
+// It returns the hash of the content written; exported content has no
+// remote checksum, so the caller records this as the file's hash.
 func (e *Engine) download(ctx context.Context, client Client, f state.File, localPath, targetMime string) (string, error) {
 	var body io.ReadCloser
 	var err error
@@ -117,7 +121,7 @@ func (e *Engine) download(ctx context.Context, client Client, f state.File, loca
 		return "", err
 	}
 	tmpName := tmp.Name()
-	hash := md5.New()
+	hash := client.NewContentHash()
 	if _, err := io.Copy(io.MultiWriter(tmp, hash), body); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
@@ -128,9 +132,9 @@ func (e *Engine) download(ctx context.Context, client Client, f state.File, loca
 		return "", err
 	}
 	got := hex.EncodeToString(hash.Sum(nil))
-	if f.MD5 != "" && got != f.MD5 {
+	if f.Hash != "" && got != f.Hash {
 		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("md5 mismatch for %s: got %s, want %s", f.Name, got, f.MD5)
+		return "", fmt.Errorf("hash mismatch for %s: got %s, want %s", f.Name, got, f.Hash)
 	}
 	if err := os.Rename(tmpName, localPath); err != nil {
 		return "", err
@@ -141,7 +145,7 @@ func (e *Engine) download(ctx context.Context, client Client, f state.File, loca
 // removeLocal deletes the local copy of a removed file.
 func (e *Engine) removeLocal(acct config.Account, files map[string]state.File, fileID string) error {
 	row, ok := files[fileID]
-	if !ok || isFolderRow(row) {
+	if !ok || row.Folder {
 		return nil
 	}
 	path := e.localPath(acct, resolvedPath(acct, files, row))
@@ -177,11 +181,31 @@ func (e *Engine) renameFolder(acct config.Account, files map[string]state.File, 
 	return nil
 }
 
+// removeByPath removes the local copy of a provider removal recorded
+// by path rather than by ID.
+func (e *Engine) removeByPath(acct config.Account, files map[string]state.File, path string) error {
+	want := strings.Split(strings.Trim(path, "/"), "/")
+	for id, row := range files {
+		if row.Folder || !slices.Equal(want, resolvedPath(acct, files, row)) {
+			continue
+		}
+		if err := e.removeLocal(acct, files, id); err != nil {
+			return err
+		}
+		if err := e.DB.FileDelete(acct.Name, id); err != nil {
+			return err
+		}
+		delete(files, id)
+		return nil
+	}
+	return nil
+}
+
 // warnDuplicate logs the last-wins policy when another known file maps
 // to the same local path.
 func (e *Engine) warnDuplicate(acct config.Account, res *resolver, files map[string]state.File, f state.File, localPath string) {
 	for id, row := range files {
-		if id == f.ID || isFolderRow(row) || res.excluded(acct, row) {
+		if id == f.ID || row.Folder || res.excluded(acct, row) {
 			continue
 		}
 		if e.localPath(acct, resolvedPath(acct, files, row)) == localPath {

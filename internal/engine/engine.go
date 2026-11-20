@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/singhsays/tidepull/internal/config"
-	"github.com/singhsays/tidepull/internal/provider/google"
+	"github.com/singhsays/tidepull/internal/model"
 	"github.com/singhsays/tidepull/internal/state"
 )
 
@@ -60,7 +60,7 @@ func (e *Engine) pullChanges(ctx context.Context, acct config.Account, res *reso
 	for {
 		changes, next, end, err := client.Changes(ctx, pageToken)
 		if err != nil {
-			if errors.Is(err, google.ErrStaleChangeToken) {
+			if errors.Is(err, model.ErrStaleChangeToken) {
 				e.Log.Warn().Msg("stale change token, resyncing")
 				return e.fullSync(ctx, acct, res, files)
 			}
@@ -87,7 +87,7 @@ func (e *Engine) fullSync(ctx context.Context, acct config.Account, res *resolve
 	if err != nil {
 		return err
 	}
-	listedByID := map[string]*google.File{}
+	listedByID := map[string]*model.File{}
 	for _, f := range listed {
 		listedByID[f.ID] = f
 	}

@@ -201,7 +201,7 @@ func TestExportMaterializesNativeDoc(t *testing.T) {
 	sum := md5.Sum(content)
 	rows, err := h.db.Files("test")
 	require.NoError(t, err)
-	require.Equal(t, hex.EncodeToString(sum[:]), rows["d"].MD5, "state must record the written content hash")
+	require.Equal(t, hex.EncodeToString(sum[:]), rows["d"].Hash, "state must record the written content hash")
 }
 
 func TestExportUpdatesOnChange(t *testing.T) {

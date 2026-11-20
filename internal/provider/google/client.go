@@ -5,9 +5,11 @@ package google
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"slices"
@@ -18,6 +20,8 @@ import (
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
+
+	"github.com/singhsays/tidepull/internal/model"
 )
 
 // Client talks to one Drive account over an authenticated HTTP client.
@@ -99,28 +103,11 @@ func rateLimited(res *http.Response) bool {
 	return false
 }
 
-// File is the subset of file metadata the sync needs.
-type File struct {
-	ID           string
-	Name         string
-	Parents      []string
-	MimeType     string
-	MD5          string
-	Size         int64
-	ModifiedTime string
-	Trashed      bool
+// NewContentHash returns a hash.Hash computing the content hash used
+// to verify downloaded content (the Drive MD5).
+func (c *Client) NewContentHash() hash.Hash {
+	return md5.New()
 }
-
-// Change is one entry from the change stream.
-type Change struct {
-	FileID  string
-	Removed bool
-	File    *File
-}
-
-// ErrStaleChangeToken reports that a change-stream page token is no
-// longer valid and the stream must be restarted.
-var ErrStaleChangeToken = errors.New("stale change token")
 
 // fileFields is the metadata projection requested from the API.
 const fileFields = "id,name,parents,mimeType,md5Checksum,size,modifiedTime,trashed"
@@ -138,7 +125,7 @@ func (c *Client) StartPageToken(ctx context.Context) (string, error) {
 // Changes fetches one page of the change stream. It returns the entries,
 // the token to resume from (the next page, or the new end-of-stream token
 // on the last page), and whether the stream caught up.
-func (c *Client) Changes(ctx context.Context, pageToken string) ([]*Change, string, bool, error) {
+func (c *Client) Changes(ctx context.Context, pageToken string) ([]*model.Change, string, bool, error) {
 	call := c.svc.Changes.List(pageToken).
 		SupportsAllDrives(true).
 		IncludeItemsFromAllDrives(true).
@@ -148,15 +135,16 @@ func (c *Client) Changes(ctx context.Context, pageToken string) ([]*Change, stri
 	if err != nil {
 		var apiErr *googleapi.Error
 		if errors.As(err, &apiErr) && (apiErr.Code == http.StatusNotFound || apiErr.Code == http.StatusBadRequest) {
-			return nil, "", false, fmt.Errorf("changes list: %w: %w", ErrStaleChangeToken, err)
+			return nil, "", false, fmt.Errorf("changes list: %w: %w", model.ErrStaleChangeToken, err)
 		}
 		return nil, "", false, fmt.Errorf("changes list: %w", err)
 	}
-	changes := make([]*Change, 0, len(res.Changes))
+	changes := make([]*model.Change, 0, len(res.Changes))
 	for _, ch := range res.Changes {
-		c := &Change{FileID: ch.FileId, Removed: ch.Removed}
+		c := &model.Change{FileID: ch.FileId, Removed: ch.Removed}
 		if ch.File != nil {
 			c.File = toFile(ch.File)
+			c.Removed = c.Removed || ch.File.Trashed
 		}
 		changes = append(changes, c)
 	}
@@ -170,8 +158,8 @@ func (c *Client) Changes(ctx context.Context, pageToken string) ([]*Change, stri
 
 // ListTree returns every file and folder under root (recursively), with
 // trashed entries excluded.
-func (c *Client) ListTree(ctx context.Context, root string) ([]*File, error) {
-	var all []*File
+func (c *Client) ListTree(ctx context.Context, root string) ([]*model.File, error) {
+	var all []*model.File
 	var walk func(parent string) error
 	walk = func(parent string) error {
 		pageToken := ""
@@ -192,7 +180,7 @@ func (c *Client) ListTree(ctx context.Context, root string) ([]*File, error) {
 			for _, f := range res.Files {
 				file := toFile(f)
 				all = append(all, file)
-				if file.MimeType == FolderMime {
+				if file.Folder {
 					if err := walk(file.ID); err != nil {
 						return err
 					}
@@ -317,7 +305,7 @@ func (c *Client) Export(ctx context.Context, fileID, targetMime string) (io.Read
 }
 
 // GetFile fetches one file's metadata.
-func (c *Client) GetFile(ctx context.Context, fileID string) (*File, error) {
+func (c *Client) GetFile(ctx context.Context, fileID string) (*model.File, error) {
 	f, err := c.svc.Files.Get(fileID).Fields(googleapi.Field(fileFields)).SupportsAllDrives(true).Context(ctx).Do()
 	if err != nil {
 		return nil, fmt.Errorf("get file %s: %w", fileID, err)
@@ -339,17 +327,21 @@ func (c *Client) Download(ctx context.Context, fileID string) (io.ReadCloser, er
 	return resp.Body, nil
 }
 
-// toFile converts an API file to our projection.
-func toFile(f *drive.File) *File {
-	return &File{
+// toFile converts an API file to the provider-neutral projection.
+func toFile(f *drive.File) *model.File {
+	parent := ""
+	if len(f.Parents) > 0 {
+		parent = f.Parents[0]
+	}
+	return &model.File{
 		ID:           f.Id,
+		ParentID:     parent,
 		Name:         f.Name,
-		Parents:      f.Parents,
 		MimeType:     f.MimeType,
-		MD5:          f.Md5Checksum,
+		Folder:       f.MimeType == FolderMime,
+		Hash:         f.Md5Checksum,
 		Size:         f.Size,
 		ModifiedTime: f.ModifiedTime,
-		Trashed:      f.Trashed,
 	}
 }
 

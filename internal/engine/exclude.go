@@ -19,7 +19,7 @@ const metaPolicyHash = "policy_hash"
 // configuration enables is never excluded. Folders are structural and
 // never excluded.
 func (r *resolver) excluded(acct config.Account, f state.File) bool {
-	if isFolderRow(f) {
+	if f.Folder {
 		return false
 	}
 	if target, err := r.client.ExportMime(f.MimeType, acct.Export); err == nil && target != "" {

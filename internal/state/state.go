@@ -58,7 +58,8 @@ var migrations = []string{
 		parent_id TEXT NOT NULL DEFAULT '',
 		name      TEXT NOT NULL,
 		mime_type TEXT NOT NULL,
-		md5       TEXT NOT NULL DEFAULT '',
+		folder    INTEGER NOT NULL DEFAULT 0,
+		hash      TEXT NOT NULL DEFAULT '',
 		size      INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY (account, file_id)
 	);`,
@@ -168,22 +169,24 @@ type File struct {
 	ParentID string
 	Name     string
 	MimeType string
-	MD5      string
+	Folder   bool
+	Hash     string
 	Size     int64
 }
 
 // FileUpsert inserts or updates a file row.
 func (s *DB) FileUpsert(account string, f File) error {
 	_, err := s.db.Exec(`
-INSERT INTO files (account, file_id, parent_id, name, mime_type, md5, size)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO files (account, file_id, parent_id, name, mime_type, folder, hash, size)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(account, file_id) DO UPDATE SET
 	parent_id = excluded.parent_id,
 	name = excluded.name,
 	mime_type = excluded.mime_type,
-	md5 = excluded.md5,
+	folder = excluded.folder,
+	hash = excluded.hash,
 	size = excluded.size`,
-		account, f.ID, f.ParentID, f.Name, f.MimeType, f.MD5, f.Size)
+		account, f.ID, f.ParentID, f.Name, f.MimeType, f.Folder, f.Hash, f.Size)
 	if err != nil {
 		return fmt.Errorf("file upsert for %q: %w", f.ID, err)
 	}
@@ -205,7 +208,7 @@ func (s *DB) FileDeleteAll(account string) error {
 // Files returns all known files for the account, keyed by file ID.
 func (s *DB) Files(account string) (map[string]File, error) {
 	rows, err := s.db.Query(`
-SELECT file_id, parent_id, name, mime_type, md5, size FROM files WHERE account = ?`, account)
+SELECT file_id, parent_id, name, mime_type, folder, hash, size FROM files WHERE account = ?`, account)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +216,7 @@ SELECT file_id, parent_id, name, mime_type, md5, size FROM files WHERE account =
 	files := map[string]File{}
 	for rows.Next() {
 		var f File
-		if err := rows.Scan(&f.ID, &f.ParentID, &f.Name, &f.MimeType, &f.MD5, &f.Size); err != nil {
+		if err := rows.Scan(&f.ID, &f.ParentID, &f.Name, &f.MimeType, &f.Folder, &f.Hash, &f.Size); err != nil {
 			return nil, err
 		}
 		files[f.ID] = f

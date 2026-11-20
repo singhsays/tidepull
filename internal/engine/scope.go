@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/singhsays/tidepull/internal/config"
-	"github.com/singhsays/tidepull/internal/provider/google"
+	"github.com/singhsays/tidepull/internal/model"
 	"github.com/singhsays/tidepull/internal/state"
 )
 
@@ -55,24 +55,17 @@ func (r *resolver) inScope(ctx context.Context, files map[string]state.File, f s
 	return false
 }
 
-// toStateFile converts an API file to a state row.
-func toStateFile(f *google.File) state.File {
-	parent := ""
-	if len(f.Parents) > 0 {
-		parent = f.Parents[0]
-	}
+// toStateFile converts a provider file to a state row.
+func toStateFile(f *model.File) state.File {
 	return state.File{
 		ID:       f.ID,
-		ParentID: parent,
+		ParentID: f.ParentID,
 		Name:     f.Name,
 		MimeType: f.MimeType,
-		MD5:      f.MD5,
+		Folder:   f.Folder,
+		Hash:     f.Hash,
 		Size:     f.Size,
 	}
-}
-
-func isFolderRow(f state.File) bool {
-	return f.MimeType == google.FolderMime
 }
 
 // resolvedPath walks the parent chain of start and its cached ancestors,
