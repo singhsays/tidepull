@@ -78,23 +78,37 @@ func toStateFile(f *model.File) state.File {
 // returning the path relative to the scope root (no account dir). The
 // walk stops at the scope root row or an unknown parent.
 func resolvedPath(scopeRoot string, files map[string]state.File, start state.File) []string {
+	rel, _ := resolvedRel(scopeRoot, files, start)
+	return rel
+}
+
+// resolvedRel walks the parent chain of start and its cached ancestors,
+// returning the path relative to the scope root and whether the chain
+// reaches the scope root (or, with an empty scope root, the account
+// root) through known rows.
+func resolvedRel(scopeRoot string, files map[string]state.File, start state.File) ([]string, bool) {
 	var rel []string
 	row := start
 	for depth := 0; depth < 64; depth++ {
 		if row.ID == scopeRoot {
-			break
+			return rel, true
 		}
 		rel = append([]string{row.Name}, rel...)
+		// The scope root row itself may be absent from files; reaching it
+		// as a parent still completes the chain.
 		if row.ParentID == "" {
-			break
+			return rel, scopeRoot == ""
+		}
+		if row.ParentID == scopeRoot {
+			return rel, true
 		}
 		var ok bool
 		row, ok = files[row.ParentID]
 		if !ok {
-			break
+			return rel, false
 		}
 	}
-	return rel
+	return rel, false
 }
 
 // localPath joins the account's local dir with the resolved relative

@@ -34,6 +34,42 @@ accounts:
 	require.NotEmpty(t, a.Scopes, "want provider default scopes")
 }
 
+func TestLoadOnDeletion(t *testing.T) {
+	path := write(t, `
+accounts:
+  - name: docs
+    provider: google
+    credentials-file: /run/secrets/creds.json
+    local-dir: /srv/docs
+    on-deletion: archive
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, DeletionArchive, cfg.Accounts[0].OnDeletion)
+
+	path = write(t, `
+accounts:
+  - name: docs
+    provider: google
+    credentials-file: /run/secrets/creds.json
+    local-dir: /srv/docs
+`)
+	cfg, err = Load(path)
+	require.NoError(t, err)
+	require.Equal(t, DeletionDelete, cfg.Accounts[0].OnDeletion, "unset must default to delete")
+
+	path = write(t, `
+accounts:
+  - name: docs
+    provider: google
+    credentials-file: /run/secrets/creds.json
+    local-dir: /srv/docs
+    on-deletion: maybe
+`)
+	_, err = Load(path)
+	require.Error(t, err)
+}
+
 func TestLoadExclude(t *testing.T) {
 	path := write(t, `
 accounts:
@@ -95,14 +131,14 @@ accounts:
 
 func TestLoadMissingFields(t *testing.T) {
 	for name, body := range map[string]string{
-		"no-name":          "accounts:\n  - provider: google\n    credentials-file: s\n    local-dir: /d\n",
-		"bad-name":         "accounts:\n  - name: a/b\n    provider: google\n    credentials-file: s\n    local-dir: /d\n",
-		"no-provider":      "accounts:\n  - name: a\n    credentials-file: s\n    local-dir: /d\n",
-		"bad-provider":     "accounts:\n  - name: a\n    provider: b2\n    credentials-file: s\n    local-dir: /d\n",
-		"no-credentials":   "accounts:\n  - name: a\n    provider: google\n    local-dir: /d\n",
-		"no-local-dir":     "accounts:\n  - name: a\n    provider: google\n    credentials-file: s\n",
-		"too-fast":         "accounts:\n  - name: a\n    provider: google\n    credentials-file: s\n    local-dir: /d\n    interval: 100ms\n",
-		"no-accounts":      "defaults:\n  interval: 30s\n",
+		"no-name":        "accounts:\n  - provider: google\n    credentials-file: s\n    local-dir: /d\n",
+		"bad-name":       "accounts:\n  - name: a/b\n    provider: google\n    credentials-file: s\n    local-dir: /d\n",
+		"no-provider":    "accounts:\n  - name: a\n    credentials-file: s\n    local-dir: /d\n",
+		"bad-provider":   "accounts:\n  - name: a\n    provider: b2\n    credentials-file: s\n    local-dir: /d\n",
+		"no-credentials": "accounts:\n  - name: a\n    provider: google\n    local-dir: /d\n",
+		"no-local-dir":   "accounts:\n  - name: a\n    provider: google\n    credentials-file: s\n",
+		"too-fast":       "accounts:\n  - name: a\n    provider: google\n    credentials-file: s\n    local-dir: /d\n    interval: 100ms\n",
+		"no-accounts":    "defaults:\n  interval: 30s\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Load(write(t, body))

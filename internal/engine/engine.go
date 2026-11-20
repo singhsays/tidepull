@@ -93,10 +93,10 @@ func (e *Engine) fullSync(ctx context.Context, acct config.Account, res *resolve
 	}
 
 	// Local files whose remote entries disappeared, or that the exclude
-	// list now covers, are removed.
+	// list now covers, are disposed of per the account's deletion policy.
 	for id, row := range files {
 		if _, listed := listedByID[id]; !listed || res.excluded(acct, row) {
-			if err := e.removeLocal(acct, res, files, id); err != nil {
+			if err := e.removeByID(acct, res, files, id); err != nil {
 				return err
 			}
 		}

@@ -344,5 +344,3 @@ func toFile(f *drive.File) *model.File {
 		ModifiedTime: f.ModifiedTime,
 	}
 }
-
-

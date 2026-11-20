@@ -23,9 +23,9 @@ import (
 type CLI struct {
 	LogLevel string     `short:"l" enum:"debug,info,warn,error" default:"info" help:"Minimum log level."`
 	Run      RunCmd     `cmd:"" help:"Run one pull cycle per account and exit."`
-	Daemon  DaemonCmd  `cmd:"" help:"Poll each account on its interval until interrupted."`
-	Auth    AuthCmd    `cmd:"" help:"Manage account OAuth tokens."`
-	Version VersionCmd `cmd:"" help:"Print version."`
+	Daemon   DaemonCmd  `cmd:"" help:"Poll each account on its interval until interrupted."`
+	Auth     AuthCmd    `cmd:"" help:"Manage account OAuth tokens."`
+	Version  VersionCmd `cmd:"" help:"Print version."`
 }
 
 // RunCmd runs one pull cycle.
@@ -140,4 +140,3 @@ func main() {
 		os.Exit(1)
 	}
 }
-

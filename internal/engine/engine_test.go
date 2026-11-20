@@ -128,6 +128,65 @@ func TestTrashRemovesLocal(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(h.local, "a.txt"))
 }
 
+func TestArchiveOnDeletion(t *testing.T) {
+	h := newHarness(t)
+	h.acct.OnDeletion = config.DeletionArchive
+	h.d.AddFile("a", "a.txt", drivetest.RootID, "text/plain", []byte("hello"))
+	h.run(t)
+
+	h.d.Trash("a")
+	h.run(t)
+	require.NoFileExists(t, filepath.Join(h.local, "a.txt"))
+	matches, err := filepath.Glob(filepath.Join(h.local, ".tidepull-archive", "*", "a.txt"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1, "want one archived copy")
+	got, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
+	require.Equal(t, "hello", string(got))
+	files, err := h.db.Files(h.acct.Name)
+	require.NoError(t, err)
+	require.Empty(t, files, "archived file must leave state")
+}
+
+func TestArchiveFolderSubtree(t *testing.T) {
+	h := newHarness(t)
+	h.acct.OnDeletion = config.DeletionArchive
+	h.d.AddFile("dir", "dir", drivetest.RootID, google.FolderMime, nil)
+	h.d.AddFile("b", "b.txt", "dir", "text/plain", []byte("bravo"))
+	h.run(t)
+
+	h.d.Trash("dir")
+	h.run(t)
+	require.NoFileExists(t, filepath.Join(h.local, "dir", "b.txt"))
+	matches, err := filepath.Glob(filepath.Join(h.local, ".tidepull-archive", "*", "dir", "b.txt"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1, "want the subtree archived whole")
+	got, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
+	require.Equal(t, "bravo", string(got))
+}
+
+func TestArchiveKeepsCopyWhenPathReadded(t *testing.T) {
+	h := newHarness(t)
+	h.acct.OnDeletion = config.DeletionArchive
+	h.d.AddFile("a", "a.txt", drivetest.RootID, "text/plain", []byte("old"))
+	h.run(t)
+	h.d.Trash("a")
+	h.run(t)
+
+	h.d.AddFile("a2", "a.txt", drivetest.RootID, "text/plain", []byte("new"))
+	h.run(t)
+	got, err := os.ReadFile(filepath.Join(h.local, "a.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "new", string(got))
+	matches, err := filepath.Glob(filepath.Join(h.local, ".tidepull-archive", "*", "a.txt"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1, "archive copy must survive a same-path re-add")
+	got, err = os.ReadFile(matches[0])
+	require.NoError(t, err)
+	require.Equal(t, "old", string(got))
+}
+
 func TestNativeDocSkipped(t *testing.T) {
 	h := newHarness(t)
 	h.d.AddFile("d", "doc", drivetest.RootID, drivetest.DocMime, []byte("irrelevant"))

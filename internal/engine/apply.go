@@ -23,14 +23,7 @@ func (e *Engine) applyChange(ctx context.Context, acct config.Account, res *reso
 		if ch.Path != "" {
 			return e.removeByPath(acct, res, files, ch.Path)
 		}
-		if err := e.removeLocal(acct, res, files, ch.FileID); err != nil {
-			return err
-		}
-		if err := e.DB.FileDelete(acct.Name, ch.FileID); err != nil {
-			return err
-		}
-		delete(files, ch.FileID)
-		return nil
+		return e.removeByID(acct, res, files, ch.FileID)
 	}
 	return e.placeFile(ctx, acct, res, files, toStateFile(ch.File), files[ch.FileID])
 }
@@ -142,10 +135,48 @@ func (e *Engine) download(ctx context.Context, client Client, f state.File, loca
 	return got, nil
 }
 
-// removeLocal deletes the local copy of a removed file.
-func (e *Engine) removeLocal(acct config.Account, res *resolver, files map[string]state.File, fileID string) error {
+// removeByID applies a provider removal keyed by file ID: dispose of
+// the local copy per the account's deletion policy, then forget the row.
+func (e *Engine) removeByID(acct config.Account, res *resolver, files map[string]state.File, fileID string) error {
 	row, ok := files[fileID]
-	if !ok || row.Folder {
+	if !ok {
+		return nil
+	}
+	if err := e.disposeLocal(acct, res, files, row); err != nil {
+		return err
+	}
+	if err := e.DB.FileDelete(acct.Name, fileID); err != nil {
+		return err
+	}
+	delete(files, fileID)
+	return nil
+}
+
+// removeByPath matches a provider removal recorded by path rather than
+// by ID against known rows, including folder rows.
+func (e *Engine) removeByPath(acct config.Account, res *resolver, files map[string]state.File, path string) error {
+	want := strings.Split(strings.Trim(path, "/"), "/")
+	for id, row := range files {
+		if !slices.Equal(want, resolvedPath(res.scopeRoot, files, row)) {
+			continue
+		}
+		return e.removeByID(acct, res, files, id)
+	}
+	return nil
+}
+
+// disposeLocal applies the account's deletion policy to one known row.
+func (e *Engine) disposeLocal(acct config.Account, res *resolver, files map[string]state.File, row state.File) error {
+	if acct.OnDeletion == config.DeletionArchive {
+		return e.archiveRow(acct, res, files, row)
+	}
+	return e.removeRow(acct, res, files, row)
+}
+
+// removeRow deletes the local copy of one remote row. Folder rows
+// leave their local directories behind; their children remove the files.
+func (e *Engine) removeRow(acct config.Account, res *resolver, files map[string]state.File, row state.File) error {
+	if row.Folder {
 		return nil
 	}
 	path := e.localPath(acct, resolvedPath(res.scopeRoot, files, row))
@@ -178,26 +209,6 @@ func (e *Engine) renameFolder(acct config.Account, res *resolver, files map[stri
 		}
 	}
 	e.Log.Info().Str("from", relLocalPath(acct, oldPath)).Str("to", relLocalPath(acct, newPath)).Msg("renamed")
-	return nil
-}
-
-// removeByPath removes the local copy of a provider removal recorded
-// by path rather than by ID.
-func (e *Engine) removeByPath(acct config.Account, res *resolver, files map[string]state.File, path string) error {
-	want := strings.Split(strings.Trim(path, "/"), "/")
-	for id, row := range files {
-		if row.Folder || !slices.Equal(want, resolvedPath(res.scopeRoot, files, row)) {
-			continue
-		}
-		if err := e.removeLocal(acct, res, files, id); err != nil {
-			return err
-		}
-		if err := e.DB.FileDelete(acct.Name, id); err != nil {
-			return err
-		}
-		delete(files, id)
-		return nil
-	}
 	return nil
 }
 

@@ -17,6 +17,17 @@ const (
 	defaultInterval = 30 * time.Second
 )
 
+// Deletion policies for the account's on-deletion setting.
+const (
+	// DeletionDelete removes the local copy when the remote deletes a
+	// file, mirroring the remote tree.
+	DeletionDelete = "delete"
+	// DeletionArchive moves the local copy into the account's
+	// .tidepull-archive directory under the deletion's UTC timestamp,
+	// preserving its relative path.
+	DeletionArchive = "archive"
+)
+
 // Account is one cloud account sync job.
 type Account struct {
 	// Name identifies the account in logs and CLI flags.
@@ -45,6 +56,10 @@ type Account struct {
 	RedirectPort int `yaml:"redirect-port"`
 	// Interval between change polls, e.g. 30s.
 	Interval time.Duration `yaml:"interval"`
+	// OnDeletion controls the local copy when a file is removed from
+	// the remote: "delete" removes it, "archive" moves it into the
+	// account's archive directory.
+	OnDeletion string `yaml:"on-deletion"`
 }
 
 // Config is the tidepull configuration file.
@@ -76,6 +91,9 @@ func Load(path string) (*Config, error) {
 		a := &cfg.Accounts[i]
 		if a.Interval == 0 {
 			a.Interval = cfg.Defaults.Interval
+		}
+		if a.OnDeletion == "" {
+			a.OnDeletion = DeletionDelete
 		}
 		if err := a.validate(); err != nil {
 			return nil, fmt.Errorf("account %q: %w", a.Name, err)
@@ -117,6 +135,9 @@ func (a *Account) validate() error {
 	}
 	if a.Interval < time.Second {
 		return fmt.Errorf("interval %s below 1s minimum", a.Interval)
+	}
+	if a.OnDeletion != DeletionDelete && a.OnDeletion != DeletionArchive {
+		return fmt.Errorf("invalid on-deletion %q (want %q or %q)", a.OnDeletion, DeletionDelete, DeletionArchive)
 	}
 	return nil
 }

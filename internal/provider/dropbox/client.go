@@ -168,6 +168,12 @@ func (c *Client) ListTree(ctx context.Context, root string) ([]*model.File, erro
 		map[string]any{"path": root, "recursive": true}, &res); err != nil {
 		return nil, fmt.Errorf("files list under %s: %w", root, err)
 	}
+	// A parent's path is a strict prefix of its child's, so sorting by
+	// path places folders before the files and subfolders inside them.
+	// The recursive listing does not promise any order.
+	slices.SortFunc(res.Entries, func(a, b entry) int {
+		return strings.Compare(a.PathDisplay, b.PathDisplay)
+	})
 	changes, err := c.toChanges(res.Entries)
 	if err != nil {
 		return nil, err

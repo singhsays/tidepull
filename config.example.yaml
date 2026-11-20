@@ -28,6 +28,14 @@ accounts:
     # export:
     #   document: text/plain
     #   spreadsheet: text/csv
+    # on-deletion controls what happens to the local copy when a file
+    # is removed from the remote (default: delete, mirroring the remote
+    # tree). "archive" moves the copy into the account's
+    # .tidepull-archive directory, one UTC-timestamped folder per
+    # deletion, with the original relative path preserved. Archived
+    # copies are never cleaned up; delete them when you no longer want
+    # them.
+    # on-deletion: archive
     # Empty folder-id pulls the account's root.
     folder-id: 1AbCdEf_GhiJkLmNoPqRsTuVwXyZ
     local-dir: /srv/photos

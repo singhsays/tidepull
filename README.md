@@ -22,6 +22,12 @@ runs headless on servers and NAS devices.
   Slides) have no downloadable content. tidepull skips them by default.
   With the `export` option, selected types export as text, CSV, PDF, or
   SVG.
+- **Deletion archive (optional)** — with `on-deletion: archive`, files
+  the remote deletes move into the account's `.tidepull-archive`
+  directory instead of being removed: one UTC-timestamped folder per
+  deletion, with the original relative path preserved. The canonical
+  tree stays a clean mirror; the archive keeps copies the remote no
+  longer has. Archived copies are never cleaned up.
 
 ## Install
 
@@ -76,7 +82,7 @@ the account.
 ## Notes
 
 - tidepull syncs one way only: the cloud wins. Local edits are
-  overwritten. Two-way sync is planned.
+  overwritten.
 - Google converts some uploaded text files into Docs when the Drive
   setting "Convert uploads" is on. Converted files have no downloadable
   content; disable the setting to sync text files as files, or use the
@@ -86,7 +92,6 @@ the account.
 
 ## Roadmap
 
-- Two-way sync (upload local changes, conflict handling)
 - More providers
 
 ## License

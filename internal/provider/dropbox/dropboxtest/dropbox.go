@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -102,11 +103,20 @@ func (f *Dropbox) listFolder(w http.ResponseWriter, r *http.Request) {
 		}
 		root = rp
 	}
-	entries := make([]map[string]any, 0, len(f.entries))
-	for p, e := range f.entries {
+	// Listings go out in reverse path order: children before their
+	// parents, the opposite of what ancestry-dependent code assumes.
+	// The real recursive listing does not promise an order.
+	paths := make([]string, 0, len(f.entries))
+	for p := range f.entries {
 		if root == "" || (p != root && strings.HasPrefix(p, root+"/")) {
-			entries = append(entries, f.metadata(e, p))
+			paths = append(paths, p)
 		}
+	}
+	slices.Sort(paths)
+	slices.Reverse(paths)
+	entries := make([]map[string]any, 0, len(paths))
+	for _, p := range paths {
+		entries = append(entries, f.metadata(f.entries[p], p))
 	}
 	writeJSON(w, map[string]any{
 		"entries":  entries,
