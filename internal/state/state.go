@@ -29,10 +29,11 @@ func DefaultPath() (string, error) {
 
 // Open opens the database at path and applies migrations.
 func Open(path string) (*DB, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", dsn(path))
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
 	s := &DB{db: db}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
@@ -71,10 +72,14 @@ var migrations = []string{
 	);`,
 }
 
+// dsn builds the modernc.org/sqlite DSN. PRAGMAs must go here because
+// database/sql pools connections, so Exec-set PRAGMAs would not apply to all
+// of them.
+func dsn(path string) string {
+	return `file:` + path + `?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)`
+}
+
 func (s *DB) migrate() error {
-	if _, err := s.db.Exec(`PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL;`); err != nil {
-		return err
-	}
 	for _, m := range migrations {
 		if _, err := s.db.Exec(m); err != nil {
 			return err

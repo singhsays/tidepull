@@ -2,6 +2,7 @@ package state
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -68,6 +69,13 @@ func TestMetaRoundTrip(t *testing.T) {
 	require.Empty(t, got)
 }
 
+func TestDSN(t *testing.T) {
+	got := dsn(filepath.Join("db", "state.db"))
+	require.Contains(t, got, "file:")
+	require.Contains(t, got, "_pragma=busy_timeout(5000)")
+	require.Contains(t, got, "_pragma=journal_mode(WAL)")
+}
+
 func TestOpenTwiceMigratesIdempotently(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	first, err := Open(path)
@@ -81,4 +89,62 @@ func TestOpenTwiceMigratesIdempotently(t *testing.T) {
 	got, err := second.TokenLoad("photos")
 	require.NoError(t, err)
 	require.Equal(t, "at", got.AccessToken)
+}
+
+func TestConcurrentUse(t *testing.T) {
+	db := open(t)
+	// Widen the pool past the production setting of 1 so writers really
+	// collide on separate connections.
+	db.db.SetMaxOpenConns(8)
+	require.NoError(t, db.TokenSave("photos", &oauth2.Token{AccessToken: "at", RefreshToken: "rt"}))
+	var mu sync.Mutex
+	var errs []error
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(4)
+		go func() {
+			defer wg.Done()
+			if err := db.TokenSave("photos", &oauth2.Token{AccessToken: "at", RefreshToken: "rt"}); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if err := db.MetaSave("photos", "key", "value"); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if err := db.PageTokenSave("photos", "tok"); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if _, err := db.TokenLoad("photos"); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+			if _, err := db.MetaLoad("photos", "key"); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+			if _, err := db.PageTokenLoad("photos"); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	require.Empty(t, errs)
 }
