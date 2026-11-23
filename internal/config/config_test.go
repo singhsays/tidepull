@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -111,6 +112,76 @@ accounts:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 	require.Equal(t, defaultInterval, cfg.Accounts[0].Interval)
+}
+
+func TestLoadServerDefaults(t *testing.T) {
+	path := write(t, `
+accounts:
+  - name: docs
+    provider: google
+    credentials-file: s
+    local-dir: /srv/docs
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.True(t, *cfg.Server.Enabled, "unset enabled must default to true")
+	require.Equal(t, "127.0.0.1:8420", cfg.Server.Listen)
+}
+
+func TestLoadServerOverrides(t *testing.T) {
+	path := write(t, `
+server:
+  enabled: false
+  listen: 127.0.0.1:9000
+
+accounts:
+  - name: docs
+    provider: google
+    credentials-file: s
+    local-dir: /srv/docs
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.False(t, *cfg.Server.Enabled)
+	require.Equal(t, "127.0.0.1:9000", cfg.Server.Listen)
+
+	path = write(t, `
+server:
+  listen: :8421
+
+accounts:
+  - name: docs
+    provider: google
+    credentials-file: s
+    local-dir: /srv/docs
+`)
+	cfg, err = Load(path)
+	require.NoError(t, err)
+	require.True(t, *cfg.Server.Enabled)
+	require.Equal(t, ":8421", cfg.Server.Listen)
+}
+
+func TestLoadServerInvalidListen(t *testing.T) {
+	for name, listen := range map[string]string{
+		"no-port":  "no-port",
+		"no-value": "127.0.0.1:",
+		"too-many": "127.0.0.1:8420:extra",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := write(t, fmt.Sprintf(`
+server:
+  listen: %q
+
+accounts:
+  - name: docs
+    provider: google
+    credentials-file: s
+    local-dir: /srv/docs
+`, listen))
+			_, err := Load(path)
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestLoadDuplicateName(t *testing.T) {

@@ -110,7 +110,7 @@ func loadFiltered(path string, names []string) (*config.Config, error) {
 	for _, a := range cfg.Accounts {
 		byName[a.Name] = a
 	}
-	filtered := &config.Config{Defaults: cfg.Defaults}
+	filtered := &config.Config{Defaults: cfg.Defaults, Server: cfg.Server}
 	for _, name := range names {
 		a, ok := byName[name]
 		if !ok {

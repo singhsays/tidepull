@@ -82,9 +82,7 @@ var migrations = []string{
 	);`,
 }
 
-// dsn builds the modernc.org/sqlite DSN. PRAGMAs must go here because
-// database/sql pools connections, so Exec-set PRAGMAs would not apply to all
-// of them.
+// dsn builds the modernc.org/sqlite DSN.
 func dsn(path string) string {
 	return `file:` + path + `?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)`
 }

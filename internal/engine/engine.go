@@ -21,8 +21,7 @@ type Engine struct {
 
 // Pull brings the local directory up to date with the provider: delta
 // from the stored page token, or a full resync when there is none.
-// The cycle's outcome is recorded in the status table for every return
-// path, except shutdown by canceled context.
+// The cycle's outcome is recorded in the status table.
 func (e *Engine) Pull(ctx context.Context, acct config.Account, client Client) error {
 	err := e.pull(ctx, acct, client)
 	if errors.Is(err, context.Canceled) {

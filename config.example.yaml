@@ -6,6 +6,13 @@
 # OAuth tokens and sync state are stored in
 # $XDG_DATA_HOME/tidepull/state.db.
 
+# The daemon serves a status page over HTTP in daemon mode.
+# Enabled by default on http://127.0.0.1:8420.
+# Exposes /healthz for liveness probes.
+server:
+  # listen: 127.0.0.1:8420
+  # enabled: false
+
 defaults:
   interval: 30s
 

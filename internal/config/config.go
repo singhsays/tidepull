@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -15,6 +16,8 @@ import (
 // Default values applied when the config omits them.
 const (
 	defaultInterval = 30 * time.Second
+	// defaultServerListen is the status server's default bind address.
+	defaultServerListen = "127.0.0.1:8420"
 )
 
 // Deletion policies for the account's on-deletion setting.
@@ -62,10 +65,21 @@ type Account struct {
 	OnDeletion string `yaml:"on-deletion"`
 }
 
+// Server configures the daemon's status-page HTTP server.
+type Server struct {
+	// Enabled defaults to true; set false to run the daemon without the
+	// status server.
+	Enabled *bool `yaml:"enabled"`
+	// Listen is the address the status server binds. Default
+	// 127.0.0.1:8420.
+	Listen string `yaml:"listen"`
+}
+
 // Config is the tidepull configuration file.
 type Config struct {
 	Defaults Defaults  `yaml:"defaults"`
 	Accounts []Account `yaml:"accounts"`
+	Server   Server    `yaml:"server"`
 }
 
 // Defaults applies to every account unless overridden.
@@ -85,6 +99,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Defaults.Interval == 0 {
 		cfg.Defaults.Interval = defaultInterval
+	}
+	if err := resolveServer(cfg); err != nil {
+		return nil, err
 	}
 	seen := map[string]bool{}
 	for i := range cfg.Accounts {
@@ -114,6 +131,26 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config %s: no accounts", path)
 	}
 	return cfg, nil
+}
+
+// resolveServer fills the status server's defaults and checks that an
+// enabled server has a bindable listen address. Hostless forms like
+// ":8420" are valid; an empty port is not.
+func resolveServer(cfg *Config) error {
+	if cfg.Server.Enabled == nil {
+		enabled := true
+		cfg.Server.Enabled = &enabled
+	}
+	if cfg.Server.Listen == "" {
+		cfg.Server.Listen = defaultServerListen
+	}
+	if !*cfg.Server.Enabled {
+		return nil
+	}
+	if _, port, err := net.SplitHostPort(cfg.Server.Listen); err != nil || port == "" {
+		return fmt.Errorf("server: invalid listen address %q", cfg.Server.Listen)
+	}
+	return nil
 }
 
 // validate checks required fields.

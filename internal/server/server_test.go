@@ -52,7 +52,6 @@ func TestStatusPageFullDocument(t *testing.T) {
 	} {
 		require.Contains(t, body, want)
 	}
-	// Each row shows its last cycle time formatted in UTC.
 	require.Regexp(t, `\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC`, body)
 	require.Contains(t, body, `class="error"`)
 	require.Contains(t, body, `class="ok"`)

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
-	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/rs/zerolog/log"
 
@@ -16,8 +18,13 @@ import (
 	"github.com/singhsays/tidepull/internal/provider"
 	"github.com/singhsays/tidepull/internal/provider/dropbox"
 	"github.com/singhsays/tidepull/internal/provider/google"
+	"github.com/singhsays/tidepull/internal/server"
 	"github.com/singhsays/tidepull/internal/state"
 )
+
+// statusShutdownTimeout bounds how long the status server has to drain
+// connections on daemon shutdown.
+const statusShutdownTimeout = 5 * time.Second
 
 // openState opens the default state database.
 func openState() (*state.DB, error) {
@@ -53,29 +60,74 @@ func runDaemon(ctx context.Context, cfg *config.Config) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	var wg sync.WaitGroup
+	g, ctx := errgroup.WithContext(ctx)
 	for _, acct := range cfg.Accounts {
-		wg.Add(1)
-		go func(acct config.Account) {
-			defer wg.Done()
-			pullCycle(ctx, db, acct)
-			ticker := time.NewTicker(acct.Interval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					pullCycle(ctx, db, acct)
-				}
-			}
-		}(acct)
+		g.Go(func() error {
+			pullLoop(ctx, db, acct)
+			return nil
+		})
 	}
-	wg.Wait()
-	if err := ctx.Err(); err != nil && !errors.Is(err, context.Canceled) {
+	startStatusServer(g, ctx, cfg, db)
+	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil
+}
+
+// pullLoop polls the account on its interval until ctx is done.
+func pullLoop(ctx context.Context, db *state.DB, acct config.Account) {
+	pullCycle(ctx, db, acct)
+	ticker := time.NewTicker(acct.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			pullCycle(ctx, db, acct)
+		}
+	}
+}
+
+// startStatusServer starts the status server and adds it to the errgroup.
+// It adds nothing when disabled or the address cannot bind.
+func startStatusServer(g *errgroup.Group, ctx context.Context, cfg *config.Config, db *state.DB) {
+	if !*cfg.Server.Enabled {
+		return
+	}
+	srv := &http.Server{
+		Addr: cfg.Server.Listen,
+		Handler: server.New(cfg, db).Handler(),
+	}
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		log.Error().Err(err).Str("addr", srv.Addr).Msg("status server listen failed")
+		return
+	}
+	log.Info().Str("addr", ln.Addr().String()).Msg("status server listening")
+	g.Go(func() error {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error().Err(err).Msg("status server failed")
+		}
+		return nil
+	})
+	g.Go(func() error {
+		<-ctx.Done()
+		stopStatusServer(srv)
+		return nil
+	})
+}
+
+// stopStatusServer drains open status-server connections.
+func stopStatusServer(srv *http.Server) {
+	if srv == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), statusShutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Warn().Err(err).Msg("status server shutdown")
+	}
 }
 
 // pullCycle runs one pull and logs failures, ignoring shutdown.

@@ -83,7 +83,7 @@ func formatCycleTime(raw string) string {
 	return t.UTC().Format(statusTimeLayout)
 }
 
-// handleHealthz is a liveness probe; per-account health lives on the page.
+// handleHealthz serves the liveness probe.
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }

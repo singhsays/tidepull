@@ -89,6 +89,23 @@ Dropbox apps require a pre-registered redirect URI. Register
 `http://127.0.0.1:53683/` in your app and set `redirect-port: 53683` on
 the account.
 
+## Status
+
+In daemon mode, tidepull serves status showing configured accounts and
+last sync status. It serves at http://127.0.0.1:8420 by default.
+
+`/healthz` returns 200 as long as the server is up, for load balancer
+or init-system liveness probes.
+
+To change the listen address or disable it, use the top-level `server` config
+block:
+
+```yaml
+server:
+  listen: 127.0.0.1:8420
+  enabled: true
+```
+
 ## Notes
 
 - tidepull syncs one way only: the cloud wins. Local edits are

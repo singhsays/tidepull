@@ -36,8 +36,7 @@ func (s *Server) Handler() http.Handler {
 	return withMiddleware(s.routes())
 }
 
-// routes builds the ServeMux for Handler so tests can register additional
-// routes behind the same middleware.
+// routes returns the ServeMux served by Handler.
 func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleStatus)
