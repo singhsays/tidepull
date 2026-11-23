@@ -50,6 +50,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /assets/htmx.min.js", handleHTMX)
 	mux.HandleFunc("GET /auth/{account}/start", s.handleAuthStart)
 	mux.HandleFunc("POST /auth/{account}/paste", s.handleAuthPaste)
+	mux.HandleFunc("POST /auth/{account}/disconnect", s.handleAuthDisconnect)
 	mux.HandleFunc("GET /auth/{account}/result", s.handleAuthResult)
 	mux.HandleFunc("GET /callback", s.handleCallback)
 	return mux

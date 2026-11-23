@@ -24,9 +24,9 @@
 <h1>Authorize {{.Account}}</h1>
 <p><a href="{{.AuthURL}}">Open the provider's consent page</a> and approve access.</p>
 <p class="hint">After approving, the provider redirects to a local address
-(<code>http://127.0.0.1:&#8230;</code>). If that page does not load, for
-example on a headless host, copy the full URL from the browser's address
-bar and paste it below. Otherwise, just wait for the callback.</p>
+(<code>http://127.0.0.1:&#8230;</code>). That page will not load — it is a
+callback address, not a web page. Copy the full URL from the browser's
+address bar and paste it below.</p>
 <form method="post" action="/auth/{{.Account}}/paste"
 	hx-post="/auth/{{.Account}}/paste" hx-target="#auth-result" hx-swap="innerHTML">
 	<label for="url">Pasted redirect URL</label><br>
@@ -49,6 +49,7 @@ bar and paste it below. Otherwise, just wait for the callback.</p>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Authorization result</title>
+{{if .OK}}<meta http-equiv="refresh" content="2;url=/">{{end}}
 {{template "authstyle"}}
 </head>
 <body>

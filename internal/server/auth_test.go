@@ -204,6 +204,7 @@ func TestPasteFlowStoresToken(t *testing.T) {
 	res, body := paste(t, ts, "photos", pasted)
 	require.Equal(t, http.StatusOK, res.StatusCode)
 	require.Contains(t, body, `Authorized photos`)
+	require.Contains(t, body, `http-equiv="refresh"`, "success result page should auto-redirect to the status page")
 	tok, err := db.TokenLoad("photos")
 	require.NoError(t, err)
 	require.Equal(t, "at", tok.AccessToken)
@@ -225,6 +226,7 @@ func TestPasteSwapsResultInlineWithHTMX(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = res.Body.Close() }()
 	require.Equal(t, http.StatusOK, res.StatusCode)
+	require.Equal(t, "/", res.Header.Get("HX-Redirect"), "successful htmx auth should redirect to the status page")
 	require.Contains(t, readBody(t, res), `Authorized photos`)
 }
 
@@ -308,4 +310,53 @@ func TestStatusPageHasAuthorizeLinks(t *testing.T) {
 	for _, acct := range []string{"photos", "docs", "media"} {
 		require.Contains(t, body, fmt.Sprintf(`/auth/%s/start`, acct))
 	}
+}
+
+func TestStatusPageShowsConnectedState(t *testing.T) {
+	ts, db := newAuthTestServer(t, "https://prov.example/auth", "https://prov.example/token", "")
+
+	res, err := http.Get(ts.URL + "/")
+	require.NoError(t, err)
+	defer func() { _ = res.Body.Close() }()
+	body := readBody(t, res)
+	require.Contains(t, body, `>Authorize</a>`)
+	require.NotContains(t, body, "Reauthorize")
+	require.NotContains(t, body, "Disconnect")
+
+	require.NoError(t, db.TokenSave("photos", &oauth2.Token{AccessToken: "at"}))
+	res, err = http.Get(ts.URL + "/")
+	require.NoError(t, err)
+	defer func() { _ = res.Body.Close() }()
+	body = readBody(t, res)
+	require.Contains(t, body, "Reauthorize")
+	require.Contains(t, body, `action="/auth/photos/disconnect"`)
+}
+
+func TestDisconnectRemovesTokenAndPageToken(t *testing.T) {
+	ts, db := newAuthTestServer(t, "https://prov.example/auth", "https://prov.example/token", "")
+	require.NoError(t, db.TokenSave("photos", &oauth2.Token{AccessToken: "at"}))
+	require.NoError(t, db.PageTokenSave("photos", "tok"))
+
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	res, err := client.Post(ts.URL+"/auth/photos/disconnect", "", nil)
+	require.NoError(t, err)
+	defer func() { _ = res.Body.Close() }()
+	require.Equal(t, http.StatusSeeOther, res.StatusCode)
+	require.Equal(t, "/", res.Header.Get("Location"))
+
+	_, err = db.TokenLoad("photos")
+	require.ErrorIs(t, err, state.ErrNoToken)
+	tok, err := db.PageTokenLoad("photos")
+	require.NoError(t, err)
+	require.Empty(t, tok)
+}
+
+func TestDisconnectUnknownAccount(t *testing.T) {
+	ts, _ := newAuthTestServer(t, "https://prov.example/auth", "https://prov.example/token", "")
+	res, err := http.Post(ts.URL+"/auth/nope/disconnect", "", nil)
+	require.NoError(t, err)
+	defer func() { _ = res.Body.Close() }()
+	require.Equal(t, http.StatusNotFound, res.StatusCode)
 }

@@ -129,6 +129,14 @@ func (s *DB) TokenLoad(account string) (*oauth2.Token, error) {
 	return tok, nil
 }
 
+// TokenDelete removes the account's stored token, if present.
+func (s *DB) TokenDelete(account string) error {
+	if _, err := s.db.Exec(`DELETE FROM tokens WHERE account = ?`, account); err != nil {
+		return fmt.Errorf("token delete for %q: %w", account, err)
+	}
+	return nil
+}
+
 // Close closes the database.
 func (s *DB) Close() error {
 	return s.db.Close()
@@ -141,6 +149,14 @@ INSERT INTO page_tokens (account, page_token) VALUES (?, ?)
 ON CONFLICT(account) DO UPDATE SET page_token = excluded.page_token`, account, tok)
 	if err != nil {
 		return fmt.Errorf("page token save for %q: %w", account, err)
+	}
+	return nil
+}
+
+// PageTokenDelete removes the account's change-stream position, if present.
+func (s *DB) PageTokenDelete(account string) error {
+	if _, err := s.db.Exec(`DELETE FROM page_tokens WHERE account = ?`, account); err != nil {
+		return fmt.Errorf("page token delete for %q: %w", account, err)
 	}
 	return nil
 }

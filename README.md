@@ -45,9 +45,13 @@ with a user matching the local directory's ownership:
 
 ```
 docker run -d --name tidepull --user 1000:1000 \
+  -p 127.0.0.1:8420:8420 \
   -v /srv/documents:/srv/documents \
   ghcr.io/singhsays/tidepull:v0.2.0 daemon -c /etc/tidepull/config.yaml
 ```
+
+Inside a container, set `server.listen` to `0.0.0.0:8420`: the default
+binds the loopback interface only, which a published port cannot reach.
 
 ## Quick start
 
@@ -100,9 +104,16 @@ or init-system liveness probes.
 
 ### Authorizing from the status page
 
-Each account row on the status page has an Authorize link. It starts the
-provider's OAuth consent flow and, on completion, stores the account's
-token; the next sync cycle picks it up.
+Each account row on the status page has an Authorize link while the
+account has no token, and Reauthorize plus Disconnect once it does.
+Authorize starts the provider's OAuth consent flow and, on completion,
+stores the account's token; the next sync cycle picks it up. Disconnect
+removes the token and the change-stream position; the next cycle reports
+the account as unauthorized, and a later authorization starts from a full
+resync.
+
+After a completed authorization the browser returns to the status page
+automatically.
 
 How the provider sends the browser back depends on the account's
 `redirect-url` setting:

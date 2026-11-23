@@ -148,6 +148,12 @@ func (e *Engine) fullSync(ctx context.Context, acct config.Account, res *resolve
 	if err := e.DB.PageTokenSave(acct.Name, tok); err != nil {
 		return err
 	}
-	e.Log.Info().Int("files", len(listed)).Msg("full resync complete")
+	fileCount := 0
+	for _, f := range listed {
+		if !f.Folder {
+			fileCount++
+		}
+	}
+	e.Log.Info().Int("files", fileCount).Msg("full resync complete")
 	return nil
 }

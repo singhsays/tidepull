@@ -203,10 +203,33 @@ func (s *Server) handleAuthPaste(w http.ResponseWriter, r *http.Request) {
 	}
 	s.flows.setResult(acct.Name, res)
 	if r.Header.Get("HX-Request") == "true" {
+		if res.ok {
+			w.Header().Set("HX-Redirect", "/")
+		}
 		renderAuth(w, "authresultbody", authResultData{OK: res.ok, Detail: res.text})
 		return
 	}
 	http.Redirect(w, r, "/auth/"+acct.Name+"/result", http.StatusSeeOther)
+}
+
+// handleAuthDisconnect removes the account's stored token and change-stream
+// position. The next cycle reports the account as unauthorized, and a later
+// authorization starts from a full resync.
+func (s *Server) handleAuthDisconnect(w http.ResponseWriter, r *http.Request) {
+	acct, ok := s.account(r.PathValue("account"))
+	if !ok {
+		http.Error(w, "unknown account", http.StatusNotFound)
+		return
+	}
+	if err := s.db.TokenDelete(acct.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.db.PageTokenDelete(acct.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // handleAuthResult shows the last flow outcome for the account, or sends

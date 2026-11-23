@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -22,6 +23,7 @@ const statusTimeLayout = "2006-01-02 15:04:05 MST"
 type accountRow struct {
 	Name        string
 	Provider    string
+	Connected   bool
 	HasStatus   bool
 	LastCycleAt string
 	OK          bool
@@ -61,6 +63,11 @@ func (s *Server) buildRows() ([]accountRow, error) {
 	rows := make([]accountRow, 0, len(s.cfg.Accounts))
 	for _, acct := range s.cfg.Accounts {
 		row := accountRow{Name: acct.Name, Provider: acct.Provider}
+		if _, err := s.db.TokenLoad(acct.Name); err == nil {
+			row.Connected = true
+		} else if !errors.Is(err, state.ErrNoToken) {
+			return nil, err
+		}
 		if st, ok := byAccount[acct.Name]; ok {
 			row.HasStatus = true
 			row.OK = st.Outcome == state.OutcomeOK
