@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -19,7 +20,7 @@ func newTestServer(t *testing.T, statuses map[string]state.CycleStatus) *httptes
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	for _, st := range statuses {
-		require.NoError(t, db.CycleStatusSave(st.Account, st.Outcome, st.LastError, st.FileCount))
+		require.NoError(t, db.CycleStatusSave(st))
 	}
 	cfg := &config.Config{Accounts: []config.Account{
 		{Name: "photos", Provider: "google"},
@@ -52,18 +53,21 @@ func TestStatusPageFullDocument(t *testing.T) {
 	} {
 		require.Contains(t, body, want)
 	}
-	require.Regexp(t, `\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC`, body)
-	require.Contains(t, body, `class="error"`)
-	require.Contains(t, body, `class="ok"`)
+	require.Contains(t, body, `<span class="ok">ok</span>`)
+	require.Contains(t, body, `<span class="error">error</span>`)
+	require.Regexp(t, `ok</span> · \d+ ms`, body)
 	require.Contains(t, body, "every 15s")
+	require.Contains(t, body, "tidepull ", "footer should carry the version")
+	require.Contains(t, body, "up ", "footer should carry the uptime")
 }
 
-func TestFormatCycleTime(t *testing.T) {
-	got := formatCycleTime("2026-01-02T15:04:05Z")
-	require.Equal(t, "2026-01-02 15:04:05 UTC", got)
-	got = formatCycleTime("2026-01-02T15:04:05-08:00")
-	require.Equal(t, "2026-01-02 23:04:05 UTC", got)
-	require.Equal(t, "garbage", formatCycleTime("garbage"))
+func TestRelAge(t *testing.T) {
+	// Round-to-minute boundary is unstable at 90s; use 3 minutes.
+	recent := time.Now().UTC().Add(-3 * time.Minute).Format(time.RFC3339)
+	require.Equal(t, "3m", relAge(recent))
+	old := time.Now().UTC().Add(-3 * time.Hour).Format(time.RFC3339)
+	require.Equal(t, "3h", relAge(old))
+	require.Equal(t, "garbage", relAge("garbage"))
 }
 
 func TestStatusPageHTMXRequestReturnsFragmentOnly(t *testing.T) {

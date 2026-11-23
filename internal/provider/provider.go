@@ -23,16 +23,18 @@ type Spec struct {
 	// AuthParams are extra authorize-URL options the provider needs,
 	// e.g. offline access for refresh tokens.
 	AuthParams []oauth2.AuthCodeOption
+	// Icon is an inline SVG mark rendered on the status page.
+	Icon string
 }
 
 // specs is the registry of supported providers.
 var specs = map[string]Spec{
 	"google": {
-		Name: "google", Endpoint: google.Endpoint, Scopes: google.Scopes,
+		Name: "google", Endpoint: google.Endpoint, Scopes: google.Scopes, Icon: google.Icon,
 		AuthParams: []oauth2.AuthCodeOption{oauth2.SetAuthURLParam("access_type", "offline")},
 	},
 	"dropbox": {
-		Name: "dropbox", Endpoint: dropbox.Endpoint, Scopes: dropbox.Scopes,
+		Name: "dropbox", Endpoint: dropbox.Endpoint, Scopes: dropbox.Scopes, Icon: dropbox.Icon,
 		AuthParams: dropbox.AuthParams,
 	},
 }

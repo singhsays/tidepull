@@ -3,8 +3,10 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -19,11 +21,16 @@ type Engine struct {
 	Log zerolog.Logger
 }
 
+// metaIdentity is the meta key holding the authenticated account's name,
+// as model.AccountIdentity JSON.
+const metaIdentity = "identity"
+
 // Pull brings the local directory up to date with the provider: delta
 // from the stored page token, or a full resync when there is none.
 // The cycle's outcome is recorded in the status table.
 func (e *Engine) Pull(ctx context.Context, acct config.Account, client Client) error {
-	err := e.pull(ctx, acct, client)
+	start := time.Now()
+	stats, err := e.pull(ctx, acct, client)
 	if errors.Is(err, context.Canceled) {
 		return err
 	}
@@ -38,45 +45,80 @@ func (e *Engine) Pull(ctx context.Context, acct config.Account, client Client) e
 		fileCount = 0
 		e.Log.Error().Err(fcErr).Msg("file count for status failed")
 	}
-	if err := e.DB.CycleStatusSave(acct.Name, outcome, lastErr, fileCount); err != nil {
+	st := state.CycleStatus{
+		Account:     acct.Name,
+		LastCycleAt: start.UTC().Format(time.RFC3339),
+		Outcome:     outcome,
+		LastError:   lastErr,
+		FileCount:   fileCount,
+		LastOKAt:    start.UTC().Format(time.RFC3339),
+		DurationMS:  time.Since(start).Milliseconds(),
+	}
+	if stats != nil {
+		st.Adds, st.Updates, st.Removes = stats.adds, stats.updates, stats.removes
+	}
+	if err := e.DB.CycleStatusSave(st); err != nil {
 		e.Log.Error().Err(err).Msg("cycle status save failed")
 	}
 	return err
 }
 
-// pull runs one full pull cycle.
-func (e *Engine) pull(ctx context.Context, acct config.Account, client Client) error {
+// pull runs one full pull cycle, returning the cycle's change counts
+// when the cycle got far enough to build its resolver.
+func (e *Engine) pull(ctx context.Context, acct config.Account, client Client) (*cycleStats, error) {
 	if err := client.CheckExport(acct.Export); err != nil {
-		return err
+		return nil, err
 	}
+	e.fetchIdentity(ctx, acct, client)
 	res, err := newResolver(ctx, client, acct.FolderID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	files, err := e.DB.Files(acct.Name)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	pageToken, err := e.DB.PageTokenLoad(acct.Name)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	hash := policyHash(acct)
 	saved, err := e.DB.MetaLoad(acct.Name, metaPolicyHash)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if pageToken == "" || saved != hash {
 		if pageToken != "" {
 			e.Log.Info().Msg("sync policy changed, resyncing")
 		}
 		if err := e.fullSync(ctx, acct, res, files); err != nil {
-			return err
+			return nil, err
 		}
 		// Record the policy only after a full sync performed under it.
-		return e.DB.MetaSave(acct.Name, metaPolicyHash, hash)
+		return &res.stats, e.DB.MetaSave(acct.Name, metaPolicyHash, hash)
 	}
-	return e.pullChanges(ctx, acct, res, client, files, pageToken)
+	return &res.stats, e.pullChanges(ctx, acct, res, client, files, pageToken)
+}
+
+// fetchIdentity stores the authenticated account's name once, for the
+// status page. A failure here never fails the cycle.
+func (e *Engine) fetchIdentity(ctx context.Context, acct config.Account, client Client) {
+	saved, err := e.DB.MetaLoad(acct.Name, metaIdentity)
+	if err == nil && saved != "" {
+		return
+	}
+	id, err := client.AccountInfo(ctx)
+	if err != nil {
+		e.Log.Warn().Err(err).Msg("account info fetch failed")
+		return
+	}
+	encoded, err := json.Marshal(id)
+	if err != nil {
+		return
+	}
+	if err := e.DB.MetaSave(acct.Name, metaIdentity, string(encoded)); err != nil {
+		e.Log.Error().Err(err).Msg("identity save failed")
+	}
 }
 
 // pullChanges applies change-stream deltas starting from pageToken.

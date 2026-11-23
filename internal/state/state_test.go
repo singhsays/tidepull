@@ -151,23 +151,30 @@ func TestConcurrentUse(t *testing.T) {
 
 func TestCycleStatusRoundTrip(t *testing.T) {
 	db := open(t)
-	require.NoError(t, db.CycleStatusSave("photos", OutcomeOK, "", 3))
+	require.NoError(t, db.CycleStatusSave(CycleStatus{Account: "photos", Outcome: OutcomeOK, FileCount: 3, LastOKAt: "t", Adds: 1, Updates: 2, Removes: 3, DurationMS: 40}))
 	got, err := db.CycleStatusLoad("photos")
 	require.NoError(t, err)
 	require.Equal(t, "photos", got.Account)
 	require.Equal(t, OutcomeOK, got.Outcome)
 	require.Empty(t, got.LastError)
 	require.Equal(t, 3, got.FileCount)
+	require.Equal(t, "t", got.LastOKAt)
+	require.Equal(t, int64(40), got.DurationMS)
+	require.Equal(t, 1, got.Adds)
+	require.Equal(t, 2, got.Updates)
+	require.Equal(t, 3, got.Removes)
 	stamp, err := time.Parse(time.RFC3339, got.LastCycleAt)
 	require.NoError(t, err)
 	require.WithinDuration(t, time.Now().UTC(), stamp, time.Minute)
 
-	require.NoError(t, db.CycleStatusSave("photos", OutcomeError, "boom", 0))
+	require.NoError(t, db.CycleStatusSave(CycleStatus{Account: "photos", Outcome: OutcomeError, LastError: "boom"}))
 	got, err = db.CycleStatusLoad("photos")
 	require.NoError(t, err)
 	require.Equal(t, OutcomeError, got.Outcome)
 	require.Equal(t, "boom", got.LastError)
 	require.Equal(t, 0, got.FileCount)
+	// A failed cycle keeps the last success timestamp.
+	require.Equal(t, "t", got.LastOKAt)
 }
 
 func TestCycleStatusLoadMissing(t *testing.T) {
@@ -179,8 +186,8 @@ func TestCycleStatusLoadMissing(t *testing.T) {
 
 func TestCycleStatusLoadAll(t *testing.T) {
 	db := open(t)
-	require.NoError(t, db.CycleStatusSave("photos", OutcomeOK, "", 1))
-	require.NoError(t, db.CycleStatusSave("docs", OutcomeError, "quota", 0))
+	require.NoError(t, db.CycleStatusSave(CycleStatus{Account: "photos", Outcome: OutcomeOK, FileCount: 1}))
+	require.NoError(t, db.CycleStatusSave(CycleStatus{Account: "docs", Outcome: OutcomeError, LastError: "quota"}))
 	all, err := db.CycleStatusLoadAll()
 	require.NoError(t, err)
 	require.Len(t, all, 2)

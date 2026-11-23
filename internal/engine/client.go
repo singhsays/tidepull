@@ -33,4 +33,6 @@ type Client interface {
 	// Export opens the file's content rendered as the target MIME type
 	// (for native document formats with no downloadable binary content).
 	Export(ctx context.Context, fileID, targetMime string) (io.ReadCloser, error)
+	// AccountInfo names the authenticated cloud account.
+	AccountInfo(ctx context.Context) (model.AccountIdentity, error)
 }

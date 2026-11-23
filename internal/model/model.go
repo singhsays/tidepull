@@ -26,6 +26,13 @@ type Change struct {
 	File    *File
 }
 
+// AccountIdentity names the cloud account behind a token, as the
+// provider reports it.
+type AccountIdentity struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
 // ErrStaleChangeToken reports that a change-stream page token is no
 // longer valid and the stream must be restarted.
 var ErrStaleChangeToken = errors.New("stale change token")

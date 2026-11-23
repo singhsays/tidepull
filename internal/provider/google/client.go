@@ -327,6 +327,19 @@ func (c *Client) Download(ctx context.Context, fileID string) (io.ReadCloser, er
 	return resp.Body, nil
 }
 
+// AccountInfo names the authenticated Drive account via about.get.
+func (c *Client) AccountInfo(ctx context.Context) (model.AccountIdentity, error) {
+	about, err := c.svc.About.Get().Fields(googleapi.Field("user(displayName,emailAddress)")).Context(ctx).Do()
+	if err != nil {
+		return model.AccountIdentity{}, fmt.Errorf("about get: %w", err)
+	}
+	id := model.AccountIdentity{Email: about.User.EmailAddress}
+	if about.User != nil {
+		id.Name = about.User.DisplayName
+	}
+	return id, nil
+}
+
 // toFile converts an API file to the provider-neutral projection.
 func toFile(f *drive.File) *model.File {
 	parent := ""

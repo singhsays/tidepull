@@ -55,6 +55,11 @@ func (e *Engine) placeFile(ctx context.Context, acct config.Account, res *resolv
 	if known && old.Hash != "" && old.Hash == f.Hash && old.Name == f.Name && old.ParentID == f.ParentID {
 		return nil
 	}
+	if known {
+		res.stats.updates++
+	} else {
+		res.stats.adds++
+	}
 
 	newPath := e.localPath(acct, resolvedPath(res.scopeRoot, files, f))
 	if known {
@@ -142,6 +147,7 @@ func (e *Engine) removeByID(acct config.Account, res *resolver, files map[string
 	if !ok {
 		return nil
 	}
+	res.stats.removes++
 	if err := e.disposeLocal(acct, res, files, row); err != nil {
 		return err
 	}

@@ -266,6 +266,18 @@ func (c *Client) resolveScope(ctx context.Context) error {
 	return nil
 }
 
+// AccountInfo names the authenticated Dropbox account.
+func (c *Client) AccountInfo(ctx context.Context) (model.AccountIdentity, error) {
+	var res struct {
+		Name  struct{ DisplayName string `json:"display_name"` } `json:"name"`
+		Email string `json:"email"`
+	}
+	if err := c.rpc(ctx, "/2/users/get_current_account", map[string]any{}, &res); err != nil {
+		return model.AccountIdentity{}, err
+	}
+	return model.AccountIdentity{Name: res.Name.DisplayName, Email: res.Email}, nil
+}
+
 func (c *Client) rpc(ctx context.Context, endpoint string, arg any, out any) error {
 	body, err := json.Marshal(arg)
 	if err != nil {

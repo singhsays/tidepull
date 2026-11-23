@@ -47,6 +47,9 @@ func New(t testing.TB) *Dropbox {
 		ids:     map[string]string{},
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /2/users/get_current_account", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"name":{"display_name":"Test User"},"email":"test@example.com"}`))
+	})
 	mux.HandleFunc("POST /2/files/list_folder", f.listFolder)
 	mux.HandleFunc("POST /2/files/list_folder/continue", f.listFolderContinue)
 	mux.HandleFunc("POST /2/files/list_folder/get_latest_cursor", f.getLatestCursor)

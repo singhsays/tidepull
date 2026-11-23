@@ -17,6 +17,14 @@ type resolver struct {
 	// means the account's whole root, which for some providers has no
 	// ID of its own.
 	scopeRoot string
+	// stats accumulates the cycle's local changes; the resolver is
+	// created once per cycle.
+	stats cycleStats
+}
+
+// cycleStats counts one cycle's local changes.
+type cycleStats struct {
+	adds, updates, removes int
 }
 
 // newResolver resolves the scope root's provider ID once per cycle.

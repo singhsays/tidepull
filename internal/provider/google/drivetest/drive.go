@@ -76,6 +76,9 @@ func New(t testing.TB) *Drive {
 		RootID: {id: RootID, name: "My Drive", parent: "", mimeType: google.FolderMime},
 	}}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /drive/v3/about", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"user":{"displayName":"Test User","emailAddress":"test@example.com"}}`))
+	})
 	mux.HandleFunc("GET /drive/v3/changes/startPageToken", func(w http.ResponseWriter, r *http.Request) {
 		d.mu.Lock()
 		defer d.mu.Unlock()

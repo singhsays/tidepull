@@ -78,7 +78,12 @@ var migrations = []string{
 		last_cycle_at TEXT NOT NULL,
 		outcome       TEXT NOT NULL,
 		last_error    TEXT NOT NULL DEFAULT '',
-		file_count    INTEGER NOT NULL DEFAULT 0
+		file_count    INTEGER NOT NULL DEFAULT 0,
+		last_ok_at    TEXT NOT NULL DEFAULT '',
+		duration_ms   INTEGER NOT NULL DEFAULT 0,
+		adds          INTEGER NOT NULL DEFAULT 0,
+		updates       INTEGER NOT NULL DEFAULT 0,
+		removes       INTEGER NOT NULL DEFAULT 0
 	);`,
 }
 
@@ -135,6 +140,17 @@ func (s *DB) TokenDelete(account string) error {
 		return fmt.Errorf("token delete for %q: %w", account, err)
 	}
 	return nil
+}
+
+// TokenUpdatedAt reads when the account's token was last saved, "" when
+// the account has no token.
+func (s *DB) TokenUpdatedAt(account string) (string, error) {
+	var updated string
+	err := s.db.QueryRow(`SELECT updated_at FROM tokens WHERE account = ?`, account).Scan(&updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return updated, err
 }
 
 // Close closes the database.
@@ -205,21 +221,36 @@ type CycleStatus struct {
 	Outcome     string
 	LastError   string
 	FileCount   int
+	// LastOKAt records the last cycle that ended ok; on failure the
+	// previous value is kept.
+	LastOKAt string
+	// DurationMS is the cycle's wall time. Adds, Updates and Removes
+	// count the last cycle's local changes.
+	DurationMS int64
+	Adds       int
+	Updates    int
+	Removes    int
 }
 
 // CycleStatusSave records the account's last pull-cycle result,
-// timestamped now.
-func (s *DB) CycleStatusSave(account, outcome, lastError string, fileCount int) error {
+// timestamped now. On failure the previously recorded LastOKAt is kept.
+func (s *DB) CycleStatusSave(cs CycleStatus) error {
 	_, err := s.db.Exec(`
-INSERT INTO status (account, last_cycle_at, outcome, last_error, file_count) VALUES (?, ?, ?, ?, ?)
+INSERT INTO status (account, last_cycle_at, outcome, last_error, file_count, last_ok_at, duration_ms, adds, updates, removes)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(account) DO UPDATE SET
 	last_cycle_at = excluded.last_cycle_at,
 	outcome = excluded.outcome,
 	last_error = excluded.last_error,
-	file_count = excluded.file_count`,
-		account, time.Now().UTC().Format(time.RFC3339), outcome, lastError, fileCount)
+	file_count = excluded.file_count,
+	duration_ms = excluded.duration_ms,
+	adds = excluded.adds,
+	updates = excluded.updates,
+	removes = excluded.removes,
+	last_ok_at = CASE WHEN excluded.outcome = 'ok' THEN excluded.last_ok_at ELSE status.last_ok_at END`,
+		cs.Account, time.Now().UTC().Format(time.RFC3339), cs.Outcome, cs.LastError, cs.FileCount, cs.LastOKAt, cs.DurationMS, cs.Adds, cs.Updates, cs.Removes)
 	if err != nil {
-		return fmt.Errorf("cycle status save for %q: %w", account, err)
+		return fmt.Errorf("cycle status save for %q: %w", cs.Account, err)
 	}
 	return nil
 }
@@ -229,8 +260,8 @@ ON CONFLICT(account) DO UPDATE SET
 func (s *DB) CycleStatusLoad(account string) (CycleStatus, error) {
 	var cs CycleStatus
 	err := s.db.QueryRow(`
-SELECT account, last_cycle_at, outcome, last_error, file_count FROM status WHERE account = ?`, account).
-		Scan(&cs.Account, &cs.LastCycleAt, &cs.Outcome, &cs.LastError, &cs.FileCount)
+SELECT account, last_cycle_at, outcome, last_error, file_count, last_ok_at, duration_ms, adds, updates, removes FROM status WHERE account = ?`, account).
+		Scan(&cs.Account, &cs.LastCycleAt, &cs.Outcome, &cs.LastError, &cs.FileCount, &cs.LastOKAt, &cs.DurationMS, &cs.Adds, &cs.Updates, &cs.Removes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CycleStatus{}, fmt.Errorf("%w for account %q", ErrNoStatus, account)
 	}
@@ -242,7 +273,7 @@ SELECT account, last_cycle_at, outcome, last_error, file_count FROM status WHERE
 
 // CycleStatusLoadAll reads every account's last pull-cycle result.
 func (s *DB) CycleStatusLoadAll() ([]CycleStatus, error) {
-	rows, err := s.db.Query(`SELECT account, last_cycle_at, outcome, last_error, file_count FROM status`)
+	rows, err := s.db.Query(`SELECT account, last_cycle_at, outcome, last_error, file_count, last_ok_at, duration_ms, adds, updates, removes FROM status`)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +281,7 @@ func (s *DB) CycleStatusLoadAll() ([]CycleStatus, error) {
 	var out []CycleStatus
 	for rows.Next() {
 		var cs CycleStatus
-		if err := rows.Scan(&cs.Account, &cs.LastCycleAt, &cs.Outcome, &cs.LastError, &cs.FileCount); err != nil {
+		if err := rows.Scan(&cs.Account, &cs.LastCycleAt, &cs.Outcome, &cs.LastError, &cs.FileCount, &cs.LastOKAt, &cs.DurationMS, &cs.Adds, &cs.Updates, &cs.Removes); err != nil {
 			return nil, err
 		}
 		out = append(out, cs)

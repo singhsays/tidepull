@@ -25,6 +25,8 @@ var assetsFS embed.FS
 type Server struct {
 	cfg *config.Config
 	db  *state.DB
+	// startedAt is the daemon's start time, shown in the page footer.
+	startedAt time.Time
 	// specFor resolves a provider's spec; tests point it at fake endpoints.
 	specFor func(name string) (provider.Spec, error)
 	// flows tracks in-flight authorizations (see auth.go).
@@ -33,7 +35,7 @@ type Server struct {
 
 // New returns a Server reading accounts from cfg and cycle results from db.
 func New(cfg *config.Config, db *state.DB) *Server {
-	return &Server{cfg: cfg, db: db, flows: newAuthFlows(), specFor: provider.Get}
+	return &Server{cfg: cfg, db: db, startedAt: time.Now(), flows: newAuthFlows(), specFor: provider.Get}
 }
 
 // Handler returns the fully routed handler with middleware applied. It does
