@@ -148,3 +148,57 @@ func TestConcurrentUse(t *testing.T) {
 	wg.Wait()
 	require.Empty(t, errs)
 }
+
+func TestCycleStatusRoundTrip(t *testing.T) {
+	db := open(t)
+	require.NoError(t, db.CycleStatusSave("photos", OutcomeOK, "", 3))
+	got, err := db.CycleStatusLoad("photos")
+	require.NoError(t, err)
+	require.Equal(t, "photos", got.Account)
+	require.Equal(t, OutcomeOK, got.Outcome)
+	require.Empty(t, got.LastError)
+	require.Equal(t, 3, got.FileCount)
+	stamp, err := time.Parse(time.RFC3339, got.LastCycleAt)
+	require.NoError(t, err)
+	require.WithinDuration(t, time.Now().UTC(), stamp, time.Minute)
+
+	require.NoError(t, db.CycleStatusSave("photos", OutcomeError, "boom", 0))
+	got, err = db.CycleStatusLoad("photos")
+	require.NoError(t, err)
+	require.Equal(t, OutcomeError, got.Outcome)
+	require.Equal(t, "boom", got.LastError)
+	require.Equal(t, 0, got.FileCount)
+}
+
+func TestCycleStatusLoadMissing(t *testing.T) {
+	db := open(t)
+	got, err := db.CycleStatusLoad("nosuch")
+	require.ErrorIs(t, err, ErrNoStatus)
+	require.Equal(t, CycleStatus{}, got)
+}
+
+func TestCycleStatusLoadAll(t *testing.T) {
+	db := open(t)
+	require.NoError(t, db.CycleStatusSave("photos", OutcomeOK, "", 1))
+	require.NoError(t, db.CycleStatusSave("docs", OutcomeError, "quota", 0))
+	all, err := db.CycleStatusLoadAll()
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+	byAccount := map[string]CycleStatus{}
+	for _, cs := range all {
+		byAccount[cs.Account] = cs
+	}
+	require.Equal(t, OutcomeOK, byAccount["photos"].Outcome)
+	require.Equal(t, "quota", byAccount["docs"].LastError)
+}
+
+func TestFileCount(t *testing.T) {
+	db := open(t)
+	require.NoError(t, db.FileUpsert("photos", File{ID: "a", Name: "a.txt", MimeType: "text/plain"}))
+	require.NoError(t, db.FileUpsert("photos", File{ID: "b", Name: "b.txt", MimeType: "text/plain"}))
+	require.NoError(t, db.FileUpsert("photos", File{ID: "dir", Name: "dir", MimeType: "application/vnd.google-apps.folder", Folder: true}))
+	require.NoError(t, db.FileUpsert("other", File{ID: "c", Name: "c.txt", MimeType: "text/plain"}))
+	n, err := db.FileCount("photos")
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+}

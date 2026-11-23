@@ -17,6 +17,9 @@ import (
 // ErrNoToken is returned when an account has no stored token.
 var ErrNoToken = errors.New("no stored token")
 
+// ErrNoStatus is returned when an account has no recorded cycle status.
+var ErrNoStatus = errors.New("no recorded cycle status")
+
 // DB is the open state database.
 type DB struct {
 	db *sql.DB
@@ -69,6 +72,13 @@ var migrations = []string{
 		key     TEXT NOT NULL,
 		value   TEXT NOT NULL,
 		PRIMARY KEY (account, key)
+	);`,
+	`CREATE TABLE IF NOT EXISTS status (
+		account       TEXT PRIMARY KEY,
+		last_cycle_at TEXT NOT NULL,
+		outcome       TEXT NOT NULL,
+		last_error    TEXT NOT NULL DEFAULT '',
+		file_count    INTEGER NOT NULL DEFAULT 0
 	);`,
 }
 
@@ -166,6 +176,82 @@ func (s *DB) MetaLoad(account, key string) (string, error) {
 		return "", nil
 	}
 	return value, err
+}
+
+// Cycle outcomes for the per-account status row.
+const (
+	OutcomeOK    = "ok"
+	OutcomeError = "error"
+)
+
+// CycleStatus is one account's last pull-cycle result.
+type CycleStatus struct {
+	Account     string
+	LastCycleAt string
+	Outcome     string
+	LastError   string
+	FileCount   int
+}
+
+// CycleStatusSave records the account's last pull-cycle result,
+// timestamped now.
+func (s *DB) CycleStatusSave(account, outcome, lastError string, fileCount int) error {
+	_, err := s.db.Exec(`
+INSERT INTO status (account, last_cycle_at, outcome, last_error, file_count) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(account) DO UPDATE SET
+	last_cycle_at = excluded.last_cycle_at,
+	outcome = excluded.outcome,
+	last_error = excluded.last_error,
+	file_count = excluded.file_count`,
+		account, time.Now().UTC().Format(time.RFC3339), outcome, lastError, fileCount)
+	if err != nil {
+		return fmt.Errorf("cycle status save for %q: %w", account, err)
+	}
+	return nil
+}
+
+// CycleStatusLoad reads the account's last pull-cycle result, returning
+// ErrNoStatus when absent.
+func (s *DB) CycleStatusLoad(account string) (CycleStatus, error) {
+	var cs CycleStatus
+	err := s.db.QueryRow(`
+SELECT account, last_cycle_at, outcome, last_error, file_count FROM status WHERE account = ?`, account).
+		Scan(&cs.Account, &cs.LastCycleAt, &cs.Outcome, &cs.LastError, &cs.FileCount)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CycleStatus{}, fmt.Errorf("%w for account %q", ErrNoStatus, account)
+	}
+	if err != nil {
+		return CycleStatus{}, fmt.Errorf("cycle status load for %q: %w", account, err)
+	}
+	return cs, nil
+}
+
+// CycleStatusLoadAll reads every account's last pull-cycle result.
+func (s *DB) CycleStatusLoadAll() ([]CycleStatus, error) {
+	rows, err := s.db.Query(`SELECT account, last_cycle_at, outcome, last_error, file_count FROM status`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []CycleStatus
+	for rows.Next() {
+		var cs CycleStatus
+		if err := rows.Scan(&cs.Account, &cs.LastCycleAt, &cs.Outcome, &cs.LastError, &cs.FileCount); err != nil {
+			return nil, err
+		}
+		out = append(out, cs)
+	}
+	return out, rows.Err()
+}
+
+// FileCount returns the account's known non-folder file rows.
+func (s *DB) FileCount(account string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM files WHERE account = ? AND folder = 0`, account).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("file count for %q: %w", account, err)
+	}
+	return n, nil
 }
 
 // File is one known remote file or folder in the account's tree.

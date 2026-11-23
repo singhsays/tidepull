@@ -4,15 +4,18 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/singhsays/tidepull/internal/config"
+	"github.com/singhsays/tidepull/internal/model"
 	"github.com/singhsays/tidepull/internal/provider/google"
 	"github.com/singhsays/tidepull/internal/provider/google/drivetest"
 	"github.com/singhsays/tidepull/internal/state"
@@ -320,4 +323,60 @@ func TestFolderScopeLimitsSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "in", string(got))
 	require.NoFileExists(t, filepath.Join(h.local, "out.txt"))
+}
+
+// failingClient fails ListTree to exercise a mid-cycle pull failure.
+type failingClient struct {
+	Client
+	err error
+}
+
+func (f failingClient) ListTree(ctx context.Context, root string) ([]*model.File, error) {
+	return nil, f.err
+}
+
+func TestSuccessfulPullRecordsStatus(t *testing.T) {
+	h := newHarness(t)
+	h.d.AddFile("a", "a.txt", drivetest.RootID, "text/plain", []byte("hello"))
+	h.d.AddFile("docs", "docs", drivetest.RootID, google.FolderMime, nil)
+	h.d.AddFile("b", "b.txt", "docs", "text/plain", []byte("bravo"))
+	h.run(t)
+
+	cs, err := h.db.CycleStatusLoad(h.acct.Name)
+	require.NoError(t, err)
+	require.Equal(t, state.OutcomeOK, cs.Outcome)
+	require.Empty(t, cs.LastError)
+	stamp, err := time.Parse(time.RFC3339, cs.LastCycleAt)
+	require.NoError(t, err)
+	require.WithinDuration(t, time.Now().UTC(), stamp, time.Minute)
+
+	count, err := h.db.FileCount(h.acct.Name)
+	require.NoError(t, err)
+	require.Equal(t, 2, count, "want only downloaded files, not folders")
+	require.Equal(t, count, cs.FileCount)
+}
+
+func TestFailedPullRecordsStatus(t *testing.T) {
+	h := newHarness(t)
+	engine := &Engine{DB: h.db, Log: zerolog.Nop()}
+	want := errors.New("list exploded")
+	err := engine.Pull(context.Background(), h.acct, failingClient{Client: h.d.Client(t), err: want})
+	require.ErrorIs(t, err, want)
+
+	cs, err := h.db.CycleStatusLoad(h.acct.Name)
+	require.NoError(t, err)
+	require.Equal(t, state.OutcomeError, cs.Outcome)
+	require.Equal(t, want.Error(), cs.LastError)
+}
+
+func TestCanceledPullRecordsNoStatus(t *testing.T) {
+	h := newHarness(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	engine := &Engine{DB: h.db, Log: zerolog.Nop()}
+	err := engine.Pull(ctx, h.acct, h.d.Client(t))
+	require.ErrorIs(t, err, context.Canceled)
+
+	_, err = h.db.CycleStatusLoad(h.acct.Name)
+	require.ErrorIs(t, err, state.ErrNoStatus)
 }

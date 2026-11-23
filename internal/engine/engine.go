@@ -21,7 +21,32 @@ type Engine struct {
 
 // Pull brings the local directory up to date with the provider: delta
 // from the stored page token, or a full resync when there is none.
+// The cycle's outcome is recorded in the status table for every return
+// path, except shutdown by canceled context.
 func (e *Engine) Pull(ctx context.Context, acct config.Account, client Client) error {
+	err := e.pull(ctx, acct, client)
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	outcome := state.OutcomeOK
+	lastErr := ""
+	if err != nil {
+		outcome = state.OutcomeError
+		lastErr = err.Error()
+	}
+	fileCount, fcErr := e.DB.FileCount(acct.Name)
+	if fcErr != nil {
+		fileCount = 0
+		e.Log.Error().Err(fcErr).Msg("file count for status failed")
+	}
+	if err := e.DB.CycleStatusSave(acct.Name, outcome, lastErr, fileCount); err != nil {
+		e.Log.Error().Err(err).Msg("cycle status save failed")
+	}
+	return err
+}
+
+// pull runs one full pull cycle.
+func (e *Engine) pull(ctx context.Context, acct config.Account, client Client) error {
 	if err := client.CheckExport(acct.Export); err != nil {
 		return err
 	}
