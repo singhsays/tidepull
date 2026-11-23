@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/singhsays/tidepull/internal/config"
+	"github.com/singhsays/tidepull/internal/provider"
 	"github.com/singhsays/tidepull/internal/state"
 )
 
@@ -16,6 +17,7 @@ import (
 var templateFS embed.FS
 
 // Vendored asset, pinned version and hash in the Makefile (make fetch-htmx).
+//
 //go:embed assets/htmx.min.js
 var assetsFS embed.FS
 
@@ -23,11 +25,15 @@ var assetsFS embed.FS
 type Server struct {
 	cfg *config.Config
 	db  *state.DB
+	// specFor resolves a provider's spec; tests point it at fake endpoints.
+	specFor func(name string) (provider.Spec, error)
+	// flows tracks in-flight authorizations (see auth.go).
+	flows *authFlows
 }
 
 // New returns a Server reading accounts from cfg and cycle results from db.
 func New(cfg *config.Config, db *state.DB) *Server {
-	return &Server{cfg: cfg, db: db}
+	return &Server{cfg: cfg, db: db, flows: newAuthFlows(), specFor: provider.Get}
 }
 
 // Handler returns the fully routed handler with middleware applied. It does
@@ -42,6 +48,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /{$}", s.handleStatus)
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /assets/htmx.min.js", handleHTMX)
+	mux.HandleFunc("GET /auth/{account}/start", s.handleAuthStart)
+	mux.HandleFunc("POST /auth/{account}/paste", s.handleAuthPaste)
+	mux.HandleFunc("GET /auth/{account}/result", s.handleAuthResult)
+	mux.HandleFunc("GET /callback", s.handleCallback)
 	return mux
 }
 

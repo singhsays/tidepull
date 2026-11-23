@@ -217,3 +217,58 @@ func TestLoadMissingFields(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadRedirectURL(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		path := write(t, `
+accounts:
+  - name: docs
+    provider: google
+    credentials-file: s
+    local-dir: /srv/docs
+    redirect-url: https://tidepull.example.com/auth-callback/docs
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, "https://tidepull.example.com/auth-callback/docs", cfg.Accounts[0].RedirectURL)
+	})
+
+	t.Run("unset means paste mode", func(t *testing.T) {
+		path := write(t, `
+accounts:
+  - name: docs
+    provider: google
+    credentials-file: s
+    local-dir: /srv/docs
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.Empty(t, cfg.Accounts[0].RedirectURL)
+	})
+
+	for name, raw := range map[string]string{
+		"http scheme":               "http://tidepull.example.com/callback",
+		"relative":                  "/callback",
+		"bare host":                 "tidepull.example.com/callback",
+		"reserved root":             "https://tidepull.example.com/",
+		"reserved empty":            "https://tidepull.example.com",
+		"reserved callback":         "https://tidepull.example.com/callback",
+		"reserved callback subpath": "https://tidepull.example.com/callback/",
+		"reserved healthz":          "https://tidepull.example.com/healthz",
+		"reserved auth":             "https://tidepull.example.com/auth",
+		"reserved auth subpath":     "https://tidepull.example.com/auth/photos/start",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := write(t, fmt.Sprintf(`
+accounts:
+  - name: docs
+    provider: google
+    credentials-file: s
+    local-dir: /srv/docs
+    redirect-url: %q
+`, raw))
+			_, err := Load(path)
+			require.Error(t, err, "want error for redirect-url %q", raw)
+		})
+	}
+}

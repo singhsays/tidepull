@@ -85,9 +85,10 @@ docker run -d --name tidepull --user 1000:1000 \
    tidepull daemon -c config.yaml
    ```
 
-Dropbox apps require a pre-registered redirect URI. Register
-`http://127.0.0.1:53683/` in your app and set `redirect-port: 53683` on
-the account.
+Some providers require a pre-registered redirect URI. Register
+`http://127.0.0.1:58914/` (the default) in your app. Set
+`redirect-port` on the account only when your app registered a
+different port.
 
 ## Status
 
@@ -96,6 +97,36 @@ last sync status. It serves at http://127.0.0.1:8420 by default.
 
 `/healthz` returns 200 as long as the server is up, for load balancer
 or init-system liveness probes.
+
+### Authorizing from the status page
+
+Each account row on the status page has an Authorize link. It starts the
+provider's OAuth consent flow and, on completion, stores the account's
+token; the next sync cycle picks it up.
+
+How the provider sends the browser back depends on the account's
+`redirect-url` setting:
+
+- **Reverse-proxy mode** (the account sets `redirect-url`): the daemon
+  redirects the browser to the provider's consent page, and the provider
+  sends the browser back to that URL. Serve it over https and have your
+  reverse proxy forward it to the daemon's `/callback` route — the
+  provider itself never connects to the daemon, only your browser does.
+- **Paste mode** (default): the redirect goes to
+  `http://127.0.0.1:58914/` (or `http://127.0.0.1:<redirect-port>/` when
+  the account pins `redirect-port`). On a headless host that page may
+  fail to load; that is fine. Copy the full URL from the browser's
+  address bar after approving — it starts with the redirect address and
+  carries the completion parameters — and paste it into the form on the
+  authorization page.
+
+The provider app must have both redirect URIs registered: the loopback
+one (`http://127.0.0.1:58914/`) and the https `redirect-url`. Some
+providers match any loopback port; others require the exact
+pre-registered address, so pin it with `redirect-port`.
+
+Pending authorizations expire after about ten minutes; start again if
+one lapses.
 
 To change the listen address or disable it, use the top-level `server` config
 block:

@@ -1,0 +1,59 @@
+{{define "authstyle"}}
+<style>
+	body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a2e; max-width: 60rem; }
+	h1 { font-size: 1.4rem; }
+	code { word-break: break-all; }
+	.ok { color: #1b6b34; font-weight: 600; }
+	.error { color: #b00020; font-weight: 600; }
+	.hint { color: #6b6b78; }
+	input { margin: 0.4rem 0; }
+</style>
+{{end}}
+
+{{define "authstart"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize {{.Account}}</title>
+<script src="/assets/htmx.min.js"></script>
+{{template "authstyle"}}
+</head>
+<body>
+<h1>Authorize {{.Account}}</h1>
+<p><a href="{{.AuthURL}}">Open the provider's consent page</a> and approve access.</p>
+<p class="hint">After approving, the provider redirects to a local address
+(<code>http://127.0.0.1:&#8230;</code>). If that page does not load, for
+example on a headless host, copy the full URL from the browser's address
+bar and paste it below. Otherwise, just wait for the callback.</p>
+<form method="post" action="/auth/{{.Account}}/paste"
+	hx-post="/auth/{{.Account}}/paste" hx-target="#auth-result" hx-swap="innerHTML">
+	<label for="url">Pasted redirect URL</label><br>
+	<input id="url" name="url" type="text" size="80" required>
+	<button type="submit">Complete authorization</button>
+</form>
+<div id="auth-result"></div>
+</body>
+</html>
+{{end}}
+
+{{define "authresultbody"}}
+{{if .OK}}<p class="ok">{{.Detail}}</p>{{else}}<p class="error">{{.Detail}}</p>{{end}}
+{{end}}
+
+{{define "authresult"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorization result</title>
+{{template "authstyle"}}
+</head>
+<body>
+{{template "authresultbody" .}}
+<p><a href="/">Back to status</a></p>
+</body>
+</html>
+{{end}}

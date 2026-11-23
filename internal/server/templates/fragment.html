@@ -2,7 +2,7 @@
 <div id="status" hx-get="/" hx-trigger="load, every 15s" hx-swap="outerHTML">
 	<table>
 		<thead>
-			<tr><th>Account</th><th>Provider</th><th>Last cycle</th><th>Outcome</th><th>Last error</th><th>Files</th></tr>
+			<tr><th>Account</th><th>Provider</th><th>Last cycle</th><th>Outcome</th><th>Last error</th><th>Files</th><th>Actions</th></tr>
 		</thead>
 		<tbody>
 			{{range .}}
@@ -18,6 +18,7 @@
 				<td></td>
 				<td class="pending" colspan="3">not synced yet</td>
 				{{end}}
+				<td><a href="/auth/{{.Name}}/start">Authorize</a></td>
 			</tr>
 			{{end}}
 		</tbody>

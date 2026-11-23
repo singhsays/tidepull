@@ -4,7 +4,9 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -57,6 +59,15 @@ type Account struct {
 	// RedirectPort pins the OAuth loopback port for providers that
 	// require pre-registered redirect URIs; 0 binds a random port.
 	RedirectPort int `yaml:"redirect-port"`
+	// RedirectURL enables proxy mode for daemon authorization: the
+	// provider sends the browser to this https URL, which a reverse
+	// proxy forwards to the daemon's /callback route. Empty uses the
+	// paste fallback at http://127.0.0.1:<redirect-port or 58914>/.
+	// Most providers restrict non localhost redirects to https endpoints
+	// only, which requires the proxy to support TLS e.g. Traefik with
+	// LetsEncrypt certs. The endpoint needs to be reachable by the browser
+	// but doesn't need to be public internet routable.
+	RedirectURL string `yaml:"redirect-url"`
 	// Interval between change polls, e.g. 30s.
 	Interval time.Duration `yaml:"interval"`
 	// OnDeletion controls the local copy when a file is removed from
@@ -175,6 +186,32 @@ func (a *Account) validate() error {
 	}
 	if a.OnDeletion != DeletionDelete && a.OnDeletion != DeletionArchive {
 		return fmt.Errorf("invalid on-deletion %q (want %q or %q)", a.OnDeletion, DeletionDelete, DeletionArchive)
+	}
+	if a.RedirectURL != "" {
+		if err := validateRedirectURL(a.RedirectURL); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateRedirectURL checks a proxy-mode redirect URL: it must be an
+// absolute https URL whose path does not collide with the daemon's own
+// routes (/ /, /callback, /healthz, and anything under /auth/).
+func validateRedirectURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid redirect-url %q: %w", raw, err)
+	}
+	if !u.IsAbs() {
+		return fmt.Errorf("invalid redirect-url %q: must be an absolute URL", raw)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("invalid redirect-url %q: scheme must be https", raw)
+	}
+	p := path.Clean("/" + u.Path)
+	if p == "/" || p == "/callback" || p == "/healthz" || p == "/auth" || strings.HasPrefix(p, "/auth/") {
+		return fmt.Errorf("invalid redirect-url %q: path collides with a reserved daemon route", raw)
 	}
 	return nil
 }

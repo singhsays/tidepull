@@ -47,6 +47,11 @@ accounts:
     folder-id: 1AbCdEf_GhiJkLmNoPqRsTuVwXyZ
     local-dir: /srv/photos
     interval: 30s
+    # redirect-url enables proxy mode for authorizing from the status
+    # page: the provider sends the browser to this https URL, which your
+    # reverse proxy forwards to the daemon's /callback route. Without it,
+    # the daemon falls back to paste mode at http://127.0.0.1:58914/.
+    # redirect-url: https://tidepull.example.com/tidepull/callback
 
   - name: documents
     provider: google
@@ -63,6 +68,9 @@ accounts:
     credentials-file: /run/secrets/tidepull-notes-credentials
     local-dir: /srv/notes
     folder-id: /Notes
-    # Dropbox requires the redirect URI to match a pre-registered one:
-    # register http://127.0.0.1:53683/ in the app and pin the port here.
-    redirect-port: 53683
+    # Some providers require the redirect URI to match a pre-registered
+    # one. Register http://127.0.0.1:58914/ (the default, used by both
+    # "tidepull auth login" and paste mode on the status page) in the
+    # app; pin redirect-port only if the app registered a different
+    # port.
+    # redirect-port: 58914
