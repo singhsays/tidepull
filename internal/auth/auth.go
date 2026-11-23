@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -70,20 +71,96 @@ func oauthConfig(id, secret string, spec provider.Spec, scopes []string, redirec
 	}
 }
 
-// Login runs the authorization-code flow: bind a localhost listener, open
-// the provider's consent page in a browser, exchange the redirect's code
-// (with PKCE) and store the returned token.
-func Login(ctx context.Context, acct config.Account, spec provider.Spec, store TokenStore) (*oauth2.Token, error) {
+// BeginSession starts an authorization-code flow for an account: it loads
+// the credentials, generates the PKCE verifier and state, and returns the
+// authorize URL to open plus a session that later exchanges the callback's
+// code for a token. redirectURL is where the provider sends the browser
+// after consent; it must match what the caller can receive.
+func BeginSession(acct config.Account, spec provider.Spec, redirectURL string, store TokenStore) (string, *Session, error) {
 	id, secret, err := Credentials(acct)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-
 	verifier := oauth2.GenerateVerifier()
 	state, err := randomState()
 	if err != nil {
+		return "", nil, err
+	}
+	conf := oauthConfig(id, secret, spec, acct.Scopes, redirectURL)
+	opts := append([]oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}, spec.AuthParams...)
+	return conf.AuthCodeURL(state, opts...), &Session{
+		conf:     conf,
+		verifier: verifier,
+		state:    state,
+		store:    store,
+		acctName: acct.Name,
+	}, nil
+}
+
+// Session is an authorization-code flow in progress: it holds the PKCE
+// verifier and state from BeginSession until Exchange consumes the code.
+type Session struct {
+	conf     *oauth2.Config
+	verifier string
+	state    string
+	store    TokenStore
+	acctName string
+}
+
+// State returns the state parameter the flow started with; every callback
+// for this session must carry it back unchanged.
+func (s *Session) State() string { return s.state }
+
+// Exchange completes the flow: it swaps the callback's code for a token
+// using the session's PKCE verifier, refuses tokens without a refresh
+// token, and stores the result under the account's name.
+func (s *Session) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
+	tok, err := s.conf.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", s.verifier))
+	if err != nil {
+		return nil, fmt.Errorf("token exchange: %w", err)
+	}
+	if tok.RefreshToken == "" {
+		return nil, errors.New("provider returned no refresh token; remove the app's access and run auth login again")
+	}
+	if err := s.store.TokenSave(s.acctName, tok); err != nil {
 		return nil, err
 	}
+	return tok, nil
+}
+
+// ErrStateMismatch reports a callback whose state parameter does not match
+// the one the flow started with (possible CSRF).
+var ErrStateMismatch = errors.New("state mismatch")
+
+// CallbackError reports a redirect that names a failure instead of a code:
+// either the provider's error parameter or a missing code.
+type CallbackError struct {
+	Reason string
+}
+
+func (e *CallbackError) Error() string { return "authorization failed: " + e.Reason }
+
+// ParseCallback validates an OAuth redirect's query against the state the
+// flow started with and returns the authorization code. Every callback
+// entry point must call it before using the code.
+func ParseCallback(query url.Values, wantState string) (string, error) {
+	if query.Get("state") != wantState {
+		return "", ErrStateMismatch
+	}
+	if e := query.Get("error"); e != "" {
+		return "", &CallbackError{Reason: e}
+	}
+	code := query.Get("code")
+	if code == "" {
+		return "", &CallbackError{Reason: "missing code"}
+	}
+	return code, nil
+}
+
+// Login runs the authorization-code flow over a localhost redirect: bind a
+// listener, open the provider's consent page in a browser, parse the
+// redirect, exchange its code (with PKCE) and store the returned token.
+func Login(ctx context.Context, acct config.Account, spec provider.Spec, store TokenStore) (*oauth2.Token, error) {
 	// Providers whose redirect URIs must match a pre-registered address
 	// (Dropbox) need a fixed port; random ports otherwise.
 	listen := "127.0.0.1:0"
@@ -96,16 +173,17 @@ func Login(ctx context.Context, acct config.Account, spec provider.Spec, store T
 	}
 	defer func() { _ = l.Close() }()
 
-	conf := oauthConfig(id, secret, spec, acct.Scopes, fmt.Sprintf("http://127.0.0.1:%d/", l.Addr().(*net.TCPAddr).Port))
-	opts := append([]oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}, spec.AuthParams...)
-	authURL := conf.AuthCodeURL(state, opts...)
+	authURL, sess, err := BeginSession(acct, spec, fmt.Sprintf("http://127.0.0.1:%d/", l.Addr().(*net.TCPAddr).Port), store)
+	if err != nil {
+		return nil, err
+	}
 	fmt.Printf("Authorize %q in your browser:\n\n  %s\n", acct.Name, authURL)
 	if err := openBrowser(authURL); err != nil {
 		fmt.Println("(could not open a browser; open the URL above manually)")
 	}
 
 	ch := make(chan callbackResult, 1)
-	srv := &http.Server{Handler: callbackHandler(state, ch)}
+	srv := &http.Server{Handler: callbackHandler(sess.State(), ch)}
 	go func() { _ = srv.Serve(l) }()
 	defer func() { _ = srv.Close() }()
 
@@ -118,18 +196,7 @@ func Login(ctx context.Context, acct config.Account, spec provider.Spec, store T
 	if res.err != "" {
 		return nil, fmt.Errorf("authorization failed: %s", res.err)
 	}
-
-	tok, err := conf.Exchange(ctx, res.code, oauth2.SetAuthURLParam("code_verifier", verifier))
-	if err != nil {
-		return nil, fmt.Errorf("token exchange: %w", err)
-	}
-	if tok.RefreshToken == "" {
-		return nil, errors.New("provider returned no refresh token; remove the app's access and run auth login again")
-	}
-	if err := store.TokenSave(acct.Name, tok); err != nil {
-		return nil, err
-	}
-	return tok, nil
+	return sess.Exchange(ctx, res.code)
 }
 
 // callbackResult carries what the redirect told us.
@@ -138,21 +205,23 @@ type callbackResult struct {
 	err  string
 }
 
-// callbackHandler turns the browser redirect into a callbackResult.
+// callbackHandler turns the browser redirect into a callbackResult via
+// ParseCallback.
 func callbackHandler(wantState string, ch chan<- callbackResult) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		if q.Get("state") != wantState {
+		code, err := ParseCallback(r.URL.Query(), wantState)
+		if errors.Is(err, ErrStateMismatch) {
 			http.Error(w, "state mismatch", http.StatusBadRequest)
 			return
 		}
-		if e := q.Get("error"); e != "" {
-			_, _ = fmt.Fprintf(w, "authorization failed: %s\nYou can close this tab.", e)
-			ch <- callbackResult{err: e}
+		var cbErr *CallbackError
+		if errors.As(err, &cbErr) {
+			_, _ = fmt.Fprintf(w, "authorization failed: %s\nYou can close this tab.", cbErr.Reason)
+			ch <- callbackResult{err: cbErr.Reason}
 			return
 		}
 		_, _ = fmt.Fprintln(w, "Authorization complete.\nYou can close this tab.")
-		ch <- callbackResult{code: q.Get("code")}
+		ch <- callbackResult{code: code}
 	})
 }
 
