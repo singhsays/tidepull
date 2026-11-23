@@ -1,12 +1,29 @@
 {{define "authstyle"}}
 <style>
-	body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a2e; max-width: 60rem; }
-	h1 { font-size: 1.4rem; }
-	code { word-break: break-all; }
-	.ok { color: #1b6b34; font-weight: 600; }
-	.error { color: #b00020; font-weight: 600; }
-	.hint { color: #6b6b78; }
-	input { margin: 0.4rem 0; }
+	:root {
+		color-scheme: light dark;
+		--bg: light-dark(#f5f6f8, #16181d);
+		--surface: light-dark(#ffffff, #1f2228);
+		--text: light-dark(#1a1a2e, #e4e6eb);
+		--muted: light-dark(#6b6b78, #9a9da8);
+		--border: light-dark(#e3e5ea, #33363f);
+		--ok: light-dark(#1b6b34, #6fd08c);
+		--ok-bg: light-dark(#e6f4ea, #1d3327);
+		--error: light-dark(#b00020, #ff7b8a);
+		--error-bg: light-dark(#fdecef, #3a2026);
+		--accent: light-dark(#1b4db1, #7fa8f0);
+	}
+	body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; color: var(--text); background: var(--bg); line-height: 1.6; }
+	h1 { font-size: 1.35rem; margin-top: 0; }
+	code { word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.05rem 0.35rem; }
+	.ok { color: var(--ok); background: var(--ok-bg); display: inline-block; padding: 0.05rem 0.6rem; border-radius: 999px; font-weight: 600; }
+	.error { color: var(--error); background: var(--error-bg); display: inline-block; padding: 0.05rem 0.6rem; border-radius: 999px; font-weight: 600; }
+	.hint { color: var(--muted); font-size: 0.9rem; }
+	input { margin: 0.4rem 0; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.6rem; }
+	input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+	button { font: inherit; background: var(--accent); color: light-dark(#fff, #16181d); border: none; border-radius: 6px; padding: 0.35rem 0.9rem; cursor: pointer; }
+	button:hover { filter: brightness(1.1); }
+	a { color: var(--accent); }
 </style>
 {{end}}
 

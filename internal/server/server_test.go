@@ -53,8 +53,9 @@ func TestStatusPageFullDocument(t *testing.T) {
 	} {
 		require.Contains(t, body, want)
 	}
-	require.Contains(t, body, `<span class="ok">ok</span>`)
-	require.Contains(t, body, `<span class="error">error</span>`)
+	require.Contains(t, body, `<span class="pill ok">ok</span>`)
+	require.Contains(t, body, `<span class="pill error">error</span>`)
+	require.Contains(t, body, `class="err-row"`, "failing accounts get a tinted row")
 	require.Regexp(t, `ok</span> · \d+ ms`, body)
 	require.Contains(t, body, "every 15s")
 	require.Contains(t, body, "tidepull ", "footer should carry the version")

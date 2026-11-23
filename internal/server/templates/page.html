@@ -6,39 +6,131 @@
 <title>tidepull status</title>
 <script src="/assets/htmx.min.js"></script>
 <style>
-	body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a2e; }
-	h1 { font-size: 1.4rem; }
-	table { border-collapse: collapse; width: 100%; max-width: 72rem; table-layout: fixed; }
-	th, td { border: 1px solid #c8c8d0; padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; box-sizing: border-box; }
-	th { background: #eef0f4; }
-	th:nth-child(1) { width: 28%; }
-	th:nth-child(2) { width: 17%; }
-	th:nth-child(3) { width: 11%; }
-	th:nth-child(4) { width: 11%; }
-	th:nth-child(5) { width: 7%; }
-	th:nth-child(6) { width: 10%; }
-	td.error { color: #b00020; font-weight: 600; }
-	span.error, td.actions button { color: #b00020; }
-	span.ok { color: #1b6b34; }
-	td.pending { color: #6b6b78; font-style: italic; }
-	pre.errtext { margin: 0.3rem 0 0; white-space: pre-wrap; color: #b00020; font-weight: 400; }
-	.sub { font-size: 0.8rem; color: #6b6b78; }
-	td.account .sub { margin-left: 0.3rem; font-weight: 400; }
+	:root {
+		color-scheme: light dark;
+		--bg: light-dark(#f5f6f8, #16181d);
+		--surface: light-dark(#ffffff, #1f2228);
+		--text: light-dark(#1a1a2e, #e4e6eb);
+		--muted: light-dark(#6b6b78, #9a9da8);
+		--border: light-dark(#e3e5ea, #33363f);
+		--hover: light-dark(#f4f6fa, #262a33);
+		--ok: light-dark(#1b6b34, #6fd08c);
+		--ok-bg: light-dark(#e6f4ea, #1d3327);
+		--error: light-dark(#b00020, #ff8f9c);
+		--error-bg: light-dark(#fdecef, #3a2228);
+		--err-row: light-dark(#fdf7f8, #241d20);
+		--accent: light-dark(#1b4db1, #7fa8f0);
+		--accent-bg: light-dark(#e8eefb, #26304a);
+	}
+	body {
+		font-family: system-ui, sans-serif;
+		margin: 1.5rem 2rem;
+		color: var(--text);
+		background: var(--bg);
+	}
+	h1 { font-size: 1.35rem; margin: 0 0 1rem; }
+
+	/* The card: full available width, scrollable when the viewport is narrow. */
+	#status {
+		overflow-x: auto;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		box-shadow: 0 1px 3px light-dark(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.35));
+	}
+	table { border-collapse: collapse; width: 100%; table-layout: fixed; min-width: 52rem; }
+	th, td {
+		border: 1px solid var(--border);
+		padding: 0.5rem 0.75rem;
+		text-align: left;
+		vertical-align: top;
+		box-sizing: border-box;
+		font-variant-numeric: tabular-nums;
+	}
+	th { background: light-dark(#eef0f4, #262a33); font-size: 0.85rem; text-align: center; }
+	th:nth-child(1) { width: 34%; }
+	th:nth-child(2) { width: 15%; }
+	th:nth-child(3) { width: 9%; }
+	th:nth-child(4) { width: 8%; }
+	th:nth-child(5) { width: 5%; }
+	th:nth-child(6) { width: 8%; }
+	tbody tr { transition: background 150ms ease; }
+	tbody tr:hover { background: var(--hover); }
+	tbody tr.err-row { background: var(--err-row); }
+
+	.pill {
+		display: inline-block;
+		padding: 0.05rem 0.6rem;
+		border-radius: 999px;
+		font-size: 0.78rem;
+		font-weight: 600;
+	}
+	.pill.ok { color: var(--ok); background: var(--ok-bg); }
+	.pill.error { color: var(--error); background: var(--error-bg); }
+
+	.sub { font-size: 0.8rem; color: var(--muted); }
+	td.account .sub { margin-left: 0.3rem; }
 	td.account .provicon svg { vertical-align: -3px; }
-	td.account .paths { font-size: 0.78rem; color: #6b6b78; margin-top: 3px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	td.account .paths {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.75rem;
+		color: var(--muted);
+		margin-top: 4px;
+		line-height: 1.5;
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		white-space: nowrap;
+		overflow: hidden;
+	}
+	a.remote { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+	a.remote .rmt-txt { overflow: hidden; text-overflow: ellipsis; }
+	a.remote:hover .rmt-txt { text-decoration: underline; }
+	a.remote svg { flex-shrink: 0; }
+	td.account .paths .dir { flex-shrink: 0; color: var(--muted); }
 	td.account .paths svg { vertical-align: -2px; }
-	td.account .dir { margin: 0 4px; color: #6b6b78; }
+
+	pre.errtext {
+		margin: 0.35rem 0 0;
+		white-space: pre-wrap;
+		color: var(--error);
+		font-size: 0.8rem;
+		font-weight: 400;
+	}
+
 	td.actions form.inline { display: inline; margin-left: 0.5rem; }
-	td.actions button { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
-	footer { margin-top: 1.5rem; font-size: 0.85rem; color: #6b6b78; }
-	a { color: #1b4db1; }
+	td.actions a.btn, td.actions form.inline button {
+		display: inline-block;
+		background: none;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.12rem 0.5rem;
+		font: inherit;
+		font-size: 0.8rem;
+		line-height: 1.4;
+		vertical-align: middle;
+		cursor: pointer;
+		text-decoration: none;
+		transition: background 150ms ease;
+	}
+	td.actions a.btn { color: var(--accent); }
+	td.actions a.btn:hover { background: var(--accent-bg); }
+	td.actions form.inline button { color: var(--error); }
+	td.actions form.inline button:hover { background: var(--error-bg); }
+
+	a { color: var(--accent); }
+	footer { margin-top: 1.25rem; font-size: 0.85rem; color: var(--muted); }
+
+	@media (prefers-reduced-motion: reduce) {
+		tbody tr, td.actions button { transition: none; }
+	}
+
+{{define "folderIcon"}}<svg role="img" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>{{end}}
 </style>
 </head>
 <body>
 <h1>tidepull status</h1>
 {{template "fragment" .Rows}}
 <footer>tidepull {{.Version}} · up {{.Uptime}}</footer>
-
-{{define "folderIcon"}}<svg role="img" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>{{end}}
 </body>
 </html>

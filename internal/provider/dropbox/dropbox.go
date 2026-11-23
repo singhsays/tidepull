@@ -22,3 +22,11 @@ var AuthParams = []oauth2.AuthCodeOption{oauth2.SetAuthURLParam("token_access_ty
 // Icon is the provider mark shown on the status page (simple-icons,
 // CC0). Fill follows the status page's text color.
 var Icon = `<svg role="img" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 1.807L0 5.629l6 3.822 6.001-3.822L6 1.807zM18 1.807l-6 3.822 6 3.822 6-3.822-6-3.822zM0 13.274l6 3.822 6.001-3.822L6 9.452l-6 3.822zM18 9.452l-6 3.822 6 3.822 6-3.822-6-3.822zM6 18.371l6.001 3.822 6-3.822-6-3.822L6 18.371z"/></svg>`
+
+// RemoteURL returns the Dropbox web-UI address of the synced folder.
+func RemoteURL(folderID string) string {
+	if folderID == "" {
+		return "https://www.dropbox.com/home"
+	}
+	return "https://www.dropbox.com/home" + folderID
+}

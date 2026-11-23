@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/singhsays/tidepull/internal/model"
+	"github.com/singhsays/tidepull/internal/provider"
 	"github.com/singhsays/tidepull/internal/state"
 	"github.com/singhsays/tidepull/internal/version"
 )
@@ -25,6 +26,7 @@ type accountRow struct {
 	Provider      string
 	Icon          template.HTML
 	Identity      string
+	RemoteURL    string
 	LocalDir      string
 	FolderID      string
 	FolderDisplay string
@@ -89,6 +91,7 @@ func (s *Server) buildRows() ([]accountRow, error) {
 	rows := make([]accountRow, 0, len(s.cfg.Accounts))
 	for _, acct := range s.cfg.Accounts {
 		row := accountRow{Name: acct.Name, Provider: acct.Provider, LocalDir: acct.LocalDir, FolderID: acct.FolderID}
+		row.RemoteURL = provider.RemoteURL(acct.Provider, acct.FolderID)
 		row.FolderDisplay = acct.FolderID
 		if row.FolderDisplay == "" {
 			row.FolderDisplay = "account root"

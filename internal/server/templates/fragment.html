@@ -6,14 +6,14 @@
 		</thead>
 		<tbody>
 			{{range .}}
-			<tr>
+			<tr{{if and .HasStatus (not .OK)}} class="err-row"{{end}}>
 				<td class="account">
 					<div>{{if .Icon}}<span class="provicon" title="{{.Provider}}">{{.Icon}}</span> {{end}}<strong>{{.Name}}</strong>{{if .Identity}} <span class="sub">({{.Identity}})</span>{{end}}</div>
-					<div class="paths">{{template "folderIcon"}} <span class="remote" title="{{.FolderID}}">{{.FolderDisplay}}</span> <span class="dir">&rarr;</span> {{template "folderIcon"}} {{.LocalDir}}</div>
+					<div class="paths"><a class="remote" href="{{.RemoteURL}}" target="_blank" rel="noopener" title="{{.FolderID}}">{{template "folderIcon"}} <span class="rmt-txt">{{.FolderDisplay}}</span></a> <span class="dir">&rarr;</span> {{template "folderIcon"}} {{.LocalDir}}</div>
 				</td>
 				{{if .HasStatus}}
 				<td>
-					{{.LastCycleAt}} ago · {{if .OK}}<span class="ok">ok</span>{{else}}<span class="error">error</span>{{end}} · {{.DurationMS}} ms
+					{{.LastCycleAt}} ago · {{if .OK}}<span class="pill ok">ok</span>{{else}}<span class="pill error">error</span>{{end}} · {{.DurationMS}} ms
 					{{if .LastError}}<pre class="errtext">{{.LastError}}</pre>{{end}}
 				</td>
 				<td>{{if .LastOKAt}}{{.LastOKAt}} ago{{else}}never{{end}}</td>
@@ -24,10 +24,10 @@
 				<td class="pending" colspan="5">not synced yet</td>
 				{{end}}
 				{{if .Connected}}
-				<td class="actions"><a href="/auth/{{.Name}}/start">Reauthorize</a>
+				<td class="actions"><a class="btn" href="/auth/{{.Name}}/start">Reauthorize</a>
 					<form method="post" action="/auth/{{.Name}}/disconnect" class="inline"><button type="submit">Disconnect</button></form></td>
 				{{else}}
-				<td class="actions"><a href="/auth/{{.Name}}/start">Authorize</a></td>
+				<td class="actions"><a class="btn" href="/auth/{{.Name}}/start">Authorize</a></td>
 				{{end}}
 			</tr>
 			{{end}}

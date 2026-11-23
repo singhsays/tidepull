@@ -39,6 +39,18 @@ var specs = map[string]Spec{
 	},
 }
 
+// RemoteURL returns the provider's web-UI address of a synced folder,
+// "" for an unknown provider.
+func RemoteURL(name, folderID string) string {
+	switch name {
+	case "google":
+		return google.RemoteURL(folderID)
+	case "dropbox":
+		return dropbox.RemoteURL(folderID)
+	}
+	return ""
+}
+
 // Get returns the spec for a provider name.
 func Get(name string) (Spec, error) {
 	spec, ok := specs[name]
