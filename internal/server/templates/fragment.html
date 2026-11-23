@@ -1,0 +1,26 @@
+{{define "fragment"}}
+<div id="status" hx-get="/" hx-trigger="load, every 15s" hx-swap="outerHTML">
+	<table>
+		<thead>
+			<tr><th>Account</th><th>Provider</th><th>Last cycle</th><th>Outcome</th><th>Last error</th><th>Files</th></tr>
+		</thead>
+		<tbody>
+			{{range .}}
+			<tr>
+				<td>{{.Name}}</td>
+				<td>{{.Provider}}</td>
+				{{if .HasStatus}}
+				<td>{{.LastCycleAt}}</td>
+				{{if .OK}}<td class="ok">ok</td>{{else}}<td class="error">error</td>{{end}}
+				<td>{{if .LastError}}<pre class="errtext">{{.LastError}}</pre>{{end}}</td>
+				<td>{{.FileCount}}</td>
+				{{else}}
+				<td></td>
+				<td class="pending" colspan="3">not synced yet</td>
+				{{end}}
+			</tr>
+			{{end}}
+		</tbody>
+	</table>
+</div>
+{{end}}

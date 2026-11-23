@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tidepull status</title>
+<script src="/assets/htmx.min.js"></script>
+<style>
+	body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a2e; }
+	h1 { font-size: 1.4rem; }
+	table { border-collapse: collapse; width: 100%; max-width: 60rem; }
+	th, td { border: 1px solid #c8c8d0; padding: 0.4rem 0.7rem; text-align: left; }
+	th { background: #eef0f4; }
+	td.error { color: #b00020; font-weight: 600; }
+	td.ok { color: #1b6b34; }
+	td.pending { color: #6b6b78; font-style: italic; }
+	pre.errtext { margin: 0; white-space: pre-wrap; color: #b00020; }
+</style>
+</head>
+<body>
+<h1>tidepull status</h1>
+{{template "fragment" .}}
+</body>
+</html>
